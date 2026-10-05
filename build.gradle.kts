@@ -39,7 +39,6 @@ dependencies {
 
     developmentOnly("io.micronaut:micronaut-http-server-netty")
 
-    testImplementation("io.micronaut:micronaut-http-client")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

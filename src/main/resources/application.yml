@@ -15,6 +15,11 @@ micronaut:
           expiration: 3600
       jwt:
         signatures:
+          # No usamos JWKS remotos; sin esto el handler Lambda (que inicializa singletons
+          # de forma eager) falla porque no hay implementación de HttpClient en el jar.
+          jwks-client:
+            http-client:
+              enabled: false
           secret:
             generator:
               # HS256, >= 32 caracteres. Obligatorio (sin default fuera de dev/test).

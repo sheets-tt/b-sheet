@@ -7,6 +7,7 @@ import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPResponse;
 import io.micronaut.context.ApplicationContext;
+import io.micronaut.context.ApplicationContextBuilder;
 import io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction;
 import io.micronaut.json.JsonMapper;
 
@@ -22,15 +23,21 @@ import java.util.Map;
  */
 final class LambdaTestSupport implements AutoCloseable {
 
-    private final ApplicationContext context;
     private final APIGatewayV2HTTPEventFunction handler;
+    private final ApplicationContext context;
 
     LambdaTestSupport(Map<String, Object> extraProperties) {
-        this.context = ApplicationContext.builder()
-                .environments("test")
-                .properties(extraProperties)
-                .start();
-        this.handler = new APIGatewayV2HTTPEventFunction(context);
+        // Mismo builder que usa AWS (constructor sin args => entorno "function", init eager de
+        // singletons); solo se agrega el entorno "test" y propiedades extra.
+        this.handler = new APIGatewayV2HTTPEventFunction() {
+            @Override
+            protected ApplicationContextBuilder newApplicationContextBuilder() {
+                return super.newApplicationContextBuilder()
+                        .environments("test")
+                        .properties(extraProperties);
+            }
+        };
+        this.context = handler.getApplicationContext();
     }
 
     LambdaTestSupport() {
@@ -107,9 +114,6 @@ final class LambdaTestSupport implements AutoCloseable {
     @Override
     public void close() {
         handler.close();
-        if (context.isRunning()) {
-            context.close();
-        }
     }
 
     private static final class StubContext implements Context {

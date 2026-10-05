@@ -49,7 +49,7 @@ Código:
 | `DB_PASSWORD` | sí (prod) | vacío | Contraseña de la BD |
 | `JWT_SECRET` | **sí** | solo hay default en entorno `dev` y `test` | Secreto HS256, **≥ 32 caracteres**. Sin él, la app no arranca (fail-fast) |
 | `CORS_ALLOWED_ORIGINS` | no | `http://localhost:5173` | Orígenes permitidos, separados por comas |
-| `CONTEXT_PATH` | no | vacío | Prefijo de rutas (p.ej. `/api`) |
+| `CONTEXT_PATH` | no | vacío | Prefijo de rutas. Vacío en el despliegue estándar (ver «Rutas `/api`»); `/api` solo sin la CloudFront Function |
 | `FLYWAY_ENABLED` | no | `true` | Ejecutar migraciones al arrancar |
 | `PORT` | no | `8080` | Puerto local (solo `./gradlew run`) |
 | `LOG_LEVEL` | no | `INFO` | Nivel de log raíz |
@@ -128,7 +128,7 @@ sam deploy --guided \
   --parameter-overrides \
     DbUrl='jdbc:postgresql://db.example.com:5432/sheets?sslmode=require' \
     DbUser=sheets DbPassword='***' JwtSecret='***(>=32)***' \
-    CorsAllowedOrigins='https://app.example.com' ContextPath='/api'
+    CorsAllowedOrigins='https://app.example.com'   # ContextPath vacío (default)
 ```
 
 No hace falta `sam build`: `CodeUri` apunta directamente al jar que genera Gradle. La salida
@@ -139,10 +139,14 @@ Notas:
 - **Secretos**: `DbPassword` y `JwtSecret` son parámetros `NoEcho`, pero quedan como variables
   de entorno de la función. Para producción conviene moverlos a SSM Parameter Store
   o Secrets Manager.
-- **Rutas `/api`**: CloudFront no quita prefijos por sí solo. Hay dos opciones:
-  `ContextPath=/api` (el backend sirve `/api/health`, `/api/auth/login`, ...) o una
-  CloudFront Function que reescriba la URI y deje `ContextPath` vacío. Los clientes que
-  llaman directo a API Gateway (móvil) deben usar la misma base.
+- **Rutas `/api`**: la distribución del frontend (`f-sheet`, `infra/cloudfront.yaml`)
+  incluye la CloudFront Function `StripApiPrefixFunction`, que convierte `/api/me` en `/me`
+  antes de enviar la petición a API Gateway. Por eso, en el despliegue estándar,
+  **`ContextPath` se deja vacío** (es el default del template) y el backend expone `/health`,
+  `/auth/login` y `/me` tal como dice el contrato. Los clientes que llaman directo a
+  API Gateway (móvil) usan esas mismas rutas sin prefijo.
+  `ContextPath=/api` **solo aplica** si CloudFront reenvía `/api/*` sin esa función
+  (o si no se usa la distribución de f-sheet); en ese caso el backend serviría `/api/health`, etc.
 - **CORS** lo resuelve Micronaut. No configures CORS en el HTTP API, porque API Gateway
   respondería los preflight con otras reglas.
 - **SnapStart**: solo aplica a versiones publicadas; el evento HttpApi apunta al alias `live`.

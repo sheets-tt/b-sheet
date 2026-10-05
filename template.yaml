@@ -30,7 +30,9 @@ Parameters:
     Type: String
     Default: ''
     Description: >
-      Prefijo de rutas del backend. Usar "/api" si CloudFront reenvía /api/* sin reescribir la ruta.
+      Prefijo de rutas del backend. Dejar VACÍO detrás de la distribución de f-sheet
+      (infra/cloudfront.yaml), cuya CloudFront Function quita /api antes de llegar a API Gateway.
+      Usar "/api" solo si CloudFront reenvía /api/* sin esa función.
   FlywayEnabled:
     Type: String
     Default: 'true'

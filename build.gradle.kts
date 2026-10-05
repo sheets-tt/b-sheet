@@ -46,8 +46,11 @@ dependencies {
 // micronaut-function-aws-api-proxy-test 4.11 (que el plugin agrega a developmentOnly) crea contextos
 // anidados con micronaut-servlet-core 5.6 y hace doble bind del puerto en `./gradlew run`.
 // Para desarrollo local usamos Netty (solo developmentOnly: NO entra al jar de Lambda).
-configurations.named("developmentOnly") {
-    exclude(group = "io.micronaut.aws", module = "micronaut-function-aws-api-proxy-test")
+// Los tests invocan directamente el handler Lambda con eventos payload v2, sin servidor HTTP.
+listOf("developmentOnly", "testImplementation").forEach {
+    configurations.named(it) {
+        exclude(group = "io.micronaut.aws", module = "micronaut-function-aws-api-proxy-test")
+    }
 }
 
 application {
@@ -71,6 +74,12 @@ micronaut {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    // BD de tests: jdbc:postgresql://localhost:5432/sheets_test (sobrescribible con DB_TEST_URL).
+    environment("DB_USER", System.getenv("DB_USER") ?: System.getProperty("user.name"))
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.SHORT
+    }
 }
 
 // Arranque local: entorno "dev" (trae JWT_SECRET de desarrollo y BD local por defecto).

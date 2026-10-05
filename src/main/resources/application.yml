@@ -1,0 +1,19 @@
+micronaut:
+  application:
+    name: sheets-backend
+  server:
+    port: ${PORT:8080}
+    context-path: ${CONTEXT_PATH:}
+    cors:
+      enabled: true
+      configurations:
+        web:
+          # Lista separada por comas, p.ej. "http://localhost:5173,https://app.example.com"
+          allowed-origins: ${CORS_ALLOWED_ORIGINS:`http://localhost:5173`}
+          allowed-methods:
+            - GET
+            - POST
+            - OPTIONS
+          allowed-headers:
+            - Authorization
+            - Content-Type

@@ -1,0 +1,22 @@
+.gradle/
+build/
+out/
+target/
+.micronaut/
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+.project
+.settings
+.classpath
+.factorypath
+.DS_Store
+Thumbs.db
+# local secrets
+.env
+*.local.env
+# SAM
+.aws-sam/
+samconfig.toml

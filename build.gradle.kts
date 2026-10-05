@@ -37,8 +37,17 @@ dependencies {
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
     runtimeOnly("org.postgresql:postgresql")
 
+    developmentOnly("io.micronaut:micronaut-http-server-netty")
+
     testImplementation("io.micronaut:micronaut-http-client")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// micronaut-function-aws-api-proxy-test 4.11 (que el plugin agrega a developmentOnly) crea contextos
+// anidados con micronaut-servlet-core 5.6 y hace doble bind del puerto en `./gradlew run`.
+// Para desarrollo local usamos Netty (solo developmentOnly: NO entra al jar de Lambda).
+configurations.named("developmentOnly") {
+    exclude(group = "io.micronaut.aws", module = "micronaut-function-aws-api-proxy-test")
 }
 
 application {
@@ -67,6 +76,8 @@ tasks.withType<Test>().configureEach {
 // Arranque local: entorno "dev" (trae JWT_SECRET de desarrollo y BD local por defecto).
 tasks.named<JavaExec>("run") {
     environment("MICRONAUT_ENVIRONMENTS", System.getenv("MICRONAUT_ENVIRONMENTS") ?: "dev")
+    // Postgres local (Homebrew/Postgres.app) suele usar el usuario del SO como rol.
+    environment("DB_USER", System.getenv("DB_USER") ?: System.getProperty("user.name"))
 }
 
 tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {

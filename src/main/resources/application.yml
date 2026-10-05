@@ -1,6 +1,25 @@
 micronaut:
   application:
     name: sheets-backend
+  security:
+    authentication: bearer
+    # Usamos nuestro propio AuthController en /auth/login.
+    endpoints:
+      login:
+        enabled: false
+      logout:
+        enabled: false
+    token:
+      generator:
+        access-token:
+          expiration: 3600
+      jwt:
+        signatures:
+          secret:
+            generator:
+              # HS256, >= 32 caracteres. Obligatorio (sin default fuera de dev/test).
+              secret: ${JWT_SECRET}
+              jws-algorithm: HS256
   server:
     port: ${PORT:8080}
     context-path: ${CONTEXT_PATH:}
@@ -36,9 +55,17 @@ datasources:
     keepalive-time: 0
     initialization-fail-timeout: -1
     pool-name: sheets-pool
+    # Requerido por micronaut-crac: suspende el pool antes del snapshot de SnapStart
+    # y descarta conexiones viejas al restaurar.
+    allow-pool-suspension: true
 
 flyway:
   datasources:
     default:
       enabled: ${FLYWAY_ENABLED:true}
       locations: classpath:db/migration
+
+# micronaut-management llega transitivamente; su /health chocaría con HealthController.
+endpoints:
+  all:
+    enabled: false

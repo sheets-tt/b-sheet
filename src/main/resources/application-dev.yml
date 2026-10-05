@@ -7,6 +7,3 @@ micronaut:
           secret:
             generator:
               secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
-datasources:
-  default:
-    username: ${DB_USER:${USER:postgres}}

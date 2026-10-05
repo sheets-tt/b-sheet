@@ -1,7 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  sheets-tt backend (login). Micronaut 4 en AWS Lambda java21 + SnapStart detrás de
+  sheets-tt backend (login). Micronaut 4 en AWS Lambda java25 + SnapStart detrás de
   API Gateway HTTP API (payload v2). PostgreSQL vive FUERA de AWS.
 
 Parameters:
@@ -59,8 +59,9 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: !Sub sheets-backend-${Stage}
-      Runtime: java21
-      Architectures: [x86_64]
+      Runtime: java25
+      # Graviton: ~20% más barato por GB-s; SnapStart y java25 están soportados en arm64.
+      Architectures: [arm64]
       Handler: io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction
       CodeUri: build/libs/sheets-backend-lambda.jar
       MemorySize: 1024

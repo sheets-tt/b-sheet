@@ -1,6 +1,6 @@
 plugins {
     id("io.micronaut.application") version "4.6.2"
-    id("com.gradleup.shadow") version "8.3.9"
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 version = "0.1.0"
@@ -17,7 +17,7 @@ dependencies {
     annotationProcessor("io.micronaut.serde:micronaut-serde-processor")
     annotationProcessor("io.micronaut.validation:micronaut-validation-processor")
 
-    // AWS Lambda (runtime administrado java21) detrás de API Gateway HTTP API payload v2.
+    // AWS Lambda (runtime administrado java25) detrás de API Gateway HTTP API payload v2.
     implementation("io.micronaut.aws:micronaut-function-aws-api-proxy")
     implementation("io.micronaut.aws:micronaut-aws-lambda-events-serde")
     // Hooks CRaC (org.crac) que Lambda SnapStart invoca antes del snapshot / después del restore.
@@ -57,12 +57,15 @@ application {
 }
 
 java {
-    sourceCompatibility = JavaVersion.toVersion("21")
-    targetCompatibility = JavaVersion.toVersion("21")
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    sourceCompatibility = JavaVersion.VERSION_25
+    targetCompatibility = JavaVersion.VERSION_25
 }
 
 micronaut {
-    // "lambda_java" = Lambda en el runtime administrado java21 (clase handler, no custom runtime).
+    // "lambda_java" = Lambda en el runtime administrado java25 (clase handler, no custom runtime).
     runtime("lambda_java")
     testRuntime("junit5")
     processing {

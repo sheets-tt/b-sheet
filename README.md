@@ -1,7 +1,7 @@
 # b-sheet — backend de login (sheets-tt)
 
 Backend de autenticación de **sheets-tt**: Micronaut 4 + PostgreSQL, empaquetado para
-**AWS Lambda (runtime administrado `java21`) con SnapStart**, detrás de **API Gateway HTTP API
+**AWS Lambda (runtime administrado `java25`, arm64) con SnapStart**, detrás de **API Gateway HTTP API
 (payload v2)**. La base de datos vive **fuera de AWS**.
 
 Implementa el contrato `API_CONTRACT.md` (v1): `GET /health`, `POST /auth/login`, `GET /me`.
@@ -12,7 +12,7 @@ Implementa el contrato `API_CONTRACT.md` (v1): `GET /health`, `POST /auth/login`
 Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTTP API ($default, payload 2.0)
 Móvil (Flutter) ─────────────────────────────────►        │  ANY /{proxy+}
                                                           ▼
-                                    Lambda java21 + SnapStart (alias "live")
+                                    Lambda java25 arm64 + SnapStart (alias "live")
                                     handler: io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction
                                                           │  JDBC + SSL (Hikari, pool máx. 2)
                                                           ▼
@@ -22,7 +22,7 @@ Móvil (Flutter) ─────────────────────
 | Pieza | Detalle |
 |---|---|
 | Framework | Micronaut 4.10.20 (plugin `io.micronaut.application` 4.6.2, runtime `lambda_java`) |
-| Build | Gradle 8.14.3 (wrapper) con Kotlin DSL, Java 21, jar "fat" con Shadow |
+| Build | Gradle 9.5.1 (wrapper) con Kotlin DSL, Java 25 (toolchain), jar "fat" con Shadow 9.6.1 |
 | Persistencia | Micronaut Data JDBC + HikariCP + Flyway (`src/main/resources/db/migration`) |
 | Seguridad | Micronaut Security JWT, HS256 (`JWT_SECRET`), contraseñas bcrypt (jBCrypt) |
 | SnapStart | `micronaut-crac`: suspende el pool Hikari antes del snapshot y lo refresca al restaurar |
@@ -59,7 +59,12 @@ Nunca se commitean secretos: `.env` y `*.local.env` están en `.gitignore`.
 
 ## Desarrollo local
 
-Requisitos: JDK 21 y PostgreSQL local.
+Requisitos: **JDK 25** y PostgreSQL local. Gradle 9 corre con JDK 17 o superior, y la toolchain
+de Java 25 se detecta sola si el JDK está instalado. Lo más simple es apuntar `JAVA_HOME` al JDK 25:
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@25   # o ~/Library/Java/JavaVirtualMachines/openjdk-25.0.1/Contents/Home
+```
 
 ```bash
 createdb sheets          # BD de desarrollo
@@ -104,12 +109,13 @@ case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONT
 # → build/libs/sheets-backend-lambda.jar
 ```
 
-- Runtime: `java21`
+- Runtime: `java25` (arquitectura `arm64`)
+- Bytecode: Java 25 (class file 69)
 - Handler: `io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction`
 
 ## Despliegue con AWS SAM
 
-`template.yaml` define la función (java21, 1024 MB, timeout 20 s, **SnapStart en
+`template.yaml` define la función (java25 en arm64/Graviton, 1024 MB, timeout 20 s, **SnapStart en
 `PublishedVersions`** con alias `live`), el HTTP API (`ANY /{proxy+}`, stage `$default`,
 payload 2.0) y un log group con retención de 14 días.
 

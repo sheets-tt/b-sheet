@@ -1,0 +1,179 @@
+name: Release
+
+# Al mezclar un PR a main:
+#   1. El prefijo de la rama decide el tipo de versión:
+#        major/* | breaking/*  -> major   (v1.4.2 -> v2.0.0)
+#        feature/* | feat/*    -> minor   (v1.4.2 -> v1.5.0)
+#        cualquier otro         -> patch   (v1.4.2 -> v1.4.3)
+#      Un "#major", "#minor" o "#patch" en el mensaje del merge tiene prioridad; "#none" no publica.
+#   2. anothrNick/github-tag-action calcula la siguiente versión.
+#   3. Se construye la imagen de Lambda (arm64) y se sube a ECR con los tags de la versión.
+#   4. Se crea el tag git y el GitHub Release (solo si la imagen se publicó).
+#   5. Si DEPLOY_ENABLED=true, se despliega con SAM usando esa imagen.
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Tipo de versión
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # crear tag y release
+  id-token: write   # OIDC hacia AWS
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'sheets-tt/b-sheet' }}
+
+jobs:
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.new_tag }}
+      image: ${{ steps.image.outputs.uri }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Tipo de versión según el prefijo de la rama
+        id: bump
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          MANUAL_BUMP: ${{ inputs.bump }}
+        run: |
+          if [ -n "$MANUAL_BUMP" ]; then bump="$MANUAL_BUMP"; else
+            case "$HEAD_REF" in
+              major/*|breaking/*) bump="major" ;;
+              feature/*|feat/*)   bump="minor" ;;
+              *)                  bump="patch" ;;
+            esac
+          fi
+          echo "Rama '${HEAD_REF:-manual}' -> $bump"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+
+      - name: Calcular versión
+        id: version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: ${{ steps.bump.outputs.bump }}
+          TAG_PREFIX: v
+          RELEASE_BRANCHES: main
+          DRY_RUN: true   # el tag se crea al final, solo si la imagen se publicó
+
+      - name: ¿Hay versión nueva?
+        id: check
+        env:
+          OLD: ${{ steps.version.outputs.old_tag }}
+          NEW: ${{ steps.version.outputs.new_tag }}
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ -z "$NEW" ] || [ "$OLD" = "$NEW" ]; then
+            echo "Sin versión nueva (#none o sin commits nuevos)"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Versión: $OLD -> $NEW"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.check.outputs.skip == 'false'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        if: steps.check.outputs.skip == 'false'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - id: meta
+        if: steps.check.outputs.skip == 'false'
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.new_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.new_tag }}
+            type=sha,prefix=sha-
+          flavor: latest=true
+
+      - uses: docker/setup-qemu-action@v4
+        if: steps.check.outputs.skip == 'false'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.check.outputs.skip == 'false'
+
+      - name: Construir y publicar imagen
+        id: push
+        if: steps.check.outputs.skip == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          # Lambda no acepta índices multi-arquitectura con attestations; se publica una imagen simple.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: URI de la imagen
+        id: image
+        if: steps.check.outputs.skip == 'false'
+        run: echo "uri=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag y GitHub Release
+        if: steps.check.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          target_commitish: ${{ steps.check.outputs.sha }}
+          generate_release_notes: true
+          body: |
+            Imagen: `${{ steps.image.outputs.uri }}`
+
+  deploy:
+    needs: release
+    if: needs.release.outputs.image != '' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: sam deploy
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          IMAGE_URI: ${{ needs.release.outputs.image }}
+          STACK_NAME: ${{ vars.SAM_STACK_NAME || 'sheets-backend' }}
+        run: |
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset --no-fail-on-empty-changeset \
+            --image-repository "${IMAGE_URI%@*}" \
+            --parameter-overrides \
+              "ImageUri=$IMAGE_URI" \
+              "DbUrl=$DB_URL" "DbUser=$DB_USER" "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" \
+              "CorsAllowedOrigins=$CORS_ALLOWED_ORIGINS"

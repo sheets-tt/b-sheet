@@ -134,6 +134,11 @@ sam deploy --guided \
 No hace falta `sam build`: `CodeUri` apunta directamente al jar que genera Gradle. La salida
 `ApiDomain` es el origen que CloudFront debe usar para `/api/*`.
 
+> **No pases `ContextPath='/api'`** si el API va detrás de la distribución de f-sheet:
+> su CloudFront Function ya quita `/api`, y con las dos cosas el backend esperaría `/api/me`
+> pero recibiría `/me` (404). `ContextPath=/api` solo se usa si alguien apunta CloudFront
+> (u otro proxy) al API **sin** esa función.
+
 Notas:
 
 - **Secretos**: `DbPassword` y `JwtSecret` son parámetros `NoEcho`, pero quedan como variables

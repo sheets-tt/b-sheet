@@ -8,27 +8,27 @@ import io.micronaut.scheduling.annotation.ExecuteOn;
 import io.micronaut.security.annotation.Secured;
 import io.micronaut.security.authentication.Authentication;
 import io.micronaut.security.rules.SecurityRule;
-import tt.sheets.cuenta.Cuenta;
-import tt.sheets.cuenta.CuentaRepository;
+import tt.sheets.user.User;
+import tt.sheets.user.UserRepository;
 
-/** GET /me — perfil de la cuenta autenticada por JWT Bearer. */
+/** GET /me — perfil del usuario autenticado por JWT Bearer. */
 @Controller("/me")
 @Secured(SecurityRule.IS_AUTHENTICATED)
 public class MeController {
 
-    private final CuentaRepository cuentas;
+    private final UserRepository users;
 
-    public MeController(CuentaRepository cuentas) {
-        this.cuentas = cuentas;
+    public MeController(UserRepository users) {
+        this.users = users;
     }
 
     @Get
     @ExecuteOn(TaskExecutors.BLOCKING)
     public HttpResponse<MeResponse> me(Authentication authentication) {
-        return cuentas.findByCorreoIgnoreCase(authentication.getName())
-                .filter(Cuenta::activa)
-                .map(c -> HttpResponse.ok(new MeResponse(c.correo(), c.nombreCompleto())))
-                // Token válido pero la cuenta ya no existe o no está activa.
+        return users.findByUsernameIgnoreCase(authentication.getName())
+                .filter(User::enabled)
+                .map(u -> HttpResponse.ok(new MeResponse(u.username(), u.displayName())))
+                // Token válido pero el usuario ya no existe o está deshabilitado.
                 .orElseGet(HttpResponse::unauthorized);
     }
 }

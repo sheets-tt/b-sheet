@@ -13,25 +13,25 @@ import io.micronaut.security.token.generator.AccessRefreshTokenGenerator;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import tt.sheets.cuenta.Cuenta;
-import tt.sheets.cuenta.CuentaRepository;
+import tt.sheets.user.User;
+import tt.sheets.user.UserRepository;
 
 import java.util.List;
 import java.util.Optional;
 
-/** POST /auth/login — valida credenciales (bcrypt contra la tabla cuenta) y emite un JWT HS256 con el rol. */
+/** POST /auth/login — valida credenciales (bcrypt contra tabla users) y emite un JWT HS256. */
 @Controller("/auth")
 @Secured(SecurityRule.IS_ANONYMOUS)
 public class AuthController {
 
     private static final Logger LOG = LoggerFactory.getLogger(AuthController.class);
 
-    private final CuentaRepository cuentas;
+    private final UserRepository users;
     private final PasswordVerifier passwords;
     private final AccessRefreshTokenGenerator tokens;
 
-    public AuthController(CuentaRepository cuentas, PasswordVerifier passwords, AccessRefreshTokenGenerator tokens) {
-        this.cuentas = cuentas;
+    public AuthController(UserRepository users, PasswordVerifier passwords, AccessRefreshTokenGenerator tokens) {
+        this.users = users;
         this.passwords = passwords;
         this.tokens = tokens;
     }
@@ -39,16 +39,15 @@ public class AuthController {
     @Post("/login")
     @ExecuteOn(TaskExecutors.BLOCKING)
     public HttpResponse<?> login(@Body @Valid LoginRequest request) {
-        // El campo "username" del contrato es el correo de la cuenta.
-        Optional<Cuenta> cuenta = cuentas.findByCorreoIgnoreCase(request.username().trim())
-                .filter(Cuenta::activa);
-        boolean ok = passwords.matches(request.password(), cuenta.map(Cuenta::contrasenaHash).orElse(null));
+        Optional<User> user = users.findByUsernameIgnoreCase(request.username().trim())
+                .filter(User::enabled);
+        boolean ok = passwords.matches(request.password(), user.map(User::passwordHash).orElse(null));
         if (!ok) {
             LOG.info("login rechazado");
             return HttpResponse.unauthorized().body(new ErrorResponse("Credenciales inválidas"));
         }
-        String username = cuenta.get().correo();
-        List<String> roles = List.of(cuenta.get().rol());
+        String username = user.get().username();
+        List<String> roles = List.of();
         return tokens.generate(Authentication.build(username, roles))
                 .<HttpResponse<?>>map(t -> HttpResponse.ok(new LoginResponse(
                         t.getAccessToken(), "Bearer", t.getExpiresIn(), username, roles)))

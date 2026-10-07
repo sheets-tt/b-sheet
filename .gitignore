@@ -1,7 +1,5 @@
-.gradle/
-build/
-out/
 target/
+out/
 .micronaut/
 *.iml
 *.ipr

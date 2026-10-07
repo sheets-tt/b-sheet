@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- El parent de Micronaut fija las versiones de todas las librerías (BOM) y de los plugins. -->
+  <parent>
+    <groupId>io.micronaut.platform</groupId>
+    <artifactId>micronaut-parent</artifactId>
+    <version>4.10.20</version>
+  </parent>
+
+  <groupId>tt.sheets</groupId>
+  <artifactId>sheets-backend</artifactId>
+  <version>0.1.0</version>
+  <packaging>${packaging}</packaging>
+
+  <properties>
+    <packaging>jar</packaging>
+    <jdk.version>25</jdk.version>
+    <release.version>25</release.version>
+    <micronaut.version>4.10.20</micronaut.version>
+    <!-- Lambda en el runtime java25 (clase handler, no custom runtime). -->
+    <micronaut.runtime>lambda</micronaut.runtime>
+    <micronaut.aot.enabled>false</micronaut.aot.enabled>
+    <exec.mainClass>tt.sheets.Application</exec.mainClass>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Rol de Postgres para tests y arranque local: DB_USER o, si no existe, el usuario del SO. -->
+    <db.user>${user.name}</db.user>
+  </properties>
+
+  <dependencies>
+    <!-- AWS Lambda detrás de API Gateway HTTP API payload v2. -->
+    <dependency>
+      <groupId>io.micronaut.aws</groupId>
+      <artifactId>micronaut-function-aws-api-proxy</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.aws</groupId>
+      <artifactId>micronaut-aws-lambda-events-serde</artifactId>
+    </dependency>
+    <!-- Hooks CRaC (org.crac) que Lambda SnapStart invoca antes del snapshot / después del restore. -->
+    <dependency>
+      <groupId>io.micronaut.crac</groupId>
+      <artifactId>micronaut-crac</artifactId>
+    </dependency>
+
+    <dependency>
+      <groupId>io.micronaut.data</groupId>
+      <artifactId>micronaut-data-jdbc</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.sql</groupId>
+      <artifactId>micronaut-jdbc-hikari</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.flyway</groupId>
+      <artifactId>micronaut-flyway</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.security</groupId>
+      <artifactId>micronaut-security-jwt</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.serde</groupId>
+      <artifactId>micronaut-serde-jackson</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.micronaut.validation</groupId>
+      <artifactId>micronaut-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>jakarta.validation</groupId>
+      <artifactId>jakarta.validation-api</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.mindrot</groupId>
+      <artifactId>jbcrypt</artifactId>
+      <version>0.4</version>
+    </dependency>
+
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.yaml</groupId>
+      <artifactId>snakeyaml</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.flywaydb</groupId>
+      <artifactId>flyway-database-postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- Los tests invocan directamente el handler Lambda con eventos payload v2, sin servidor HTTP. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-api</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <profiles>
+    <profile>
+      <id>env-db-user</id>
+      <activation>
+        <property>
+          <name>env.DB_USER</name>
+        </property>
+      </activation>
+      <properties>
+        <db.user>${env.DB_USER}</db.user>
+      </properties>
+    </profile>
+
+    <!-- Arranque local (./mvnw mn:run -Pdev): servidor Netty. No entra al jar de Lambda. -->
+    <profile>
+      <id>dev</id>
+      <dependencies>
+        <dependency>
+          <groupId>io.micronaut</groupId>
+          <artifactId>micronaut-http-server-netty</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>io.micronaut.maven</groupId>
+        <artifactId>micronaut-maven-plugin</artifactId>
+        <configuration>
+          <!-- ./mvnw mn:run: entorno "dev" (JWT_SECRET de desarrollo y BD local) y rol de Postgres local. -->
+          <jvmArguments>-Dmicronaut.environments=dev -Ddatasources.default.username=${db.user}</jvmArguments>
+          <watchForChanges>false</watchForChanges>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <annotationProcessorPaths combine.children="append">
+            <path>
+              <groupId>io.micronaut</groupId>
+              <artifactId>micronaut-inject-java</artifactId>
+              <version>${micronaut.core.version}</version>
+            </path>
+            <path>
+              <groupId>io.micronaut</groupId>
+              <artifactId>micronaut-http-validation</artifactId>
+              <version>${micronaut.core.version}</version>
+            </path>
+            <path>
+              <groupId>io.micronaut.data</groupId>
+              <artifactId>micronaut-data-processor</artifactId>
+              <version>${micronaut.data.version}</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>io.micronaut</groupId>
+                  <artifactId>micronaut-inject</artifactId>
+                </exclusion>
+              </exclusions>
+            </path>
+            <path>
+              <groupId>io.micronaut.security</groupId>
+              <artifactId>micronaut-security-annotations</artifactId>
+              <version>${micronaut.security.version}</version>
+            </path>
+            <path>
+              <groupId>io.micronaut.serde</groupId>
+              <artifactId>micronaut-serde-processor</artifactId>
+              <version>${micronaut.serialization.version}</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>io.micronaut</groupId>
+                  <artifactId>micronaut-inject</artifactId>
+                </exclusion>
+              </exclusions>
+            </path>
+            <path>
+              <groupId>io.micronaut.validation</groupId>
+              <artifactId>micronaut-validation-processor</artifactId>
+              <version>${micronaut.validation.version}</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>io.micronaut</groupId>
+                  <artifactId>micronaut-inject</artifactId>
+                </exclusion>
+              </exclusions>
+            </path>
+          </annotationProcessorPaths>
+          <compilerArgs>
+            <arg>-Amicronaut.processing.group=tt.sheets</arg>
+            <arg>-Amicronaut.processing.module=sheets-backend</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <configuration>
+          <!-- BD de tests: jdbc:postgresql://localhost:5432/sheets_test (sobrescribible con DB_TEST_URL). -->
+          <environmentVariables>
+            <DB_USER>${db.user}</DB_USER>
+          </environmentVariables>
+        </configuration>
+      </plugin>
+
+      <!-- Jar único para Lambda: target/sheets-backend-lambda.jar -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <configuration>
+          <finalName>sheets-backend-lambda</finalName>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+</project>

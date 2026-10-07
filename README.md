@@ -21,8 +21,8 @@ Móvil (Flutter) ─────────────────────
 
 | Pieza | Detalle |
 |---|---|
-| Framework | Micronaut 4.10.20 (plugin `io.micronaut.application` 4.6.2, runtime `lambda_java`) |
-| Build | Gradle 9.5.1 (wrapper) con Kotlin DSL, Java 25 (toolchain), jar "fat" con Shadow 9.6.1 |
+| Framework | Micronaut 4.10.20 (`micronaut-parent`, `micronaut.runtime=lambda`) |
+| Build | Maven 3.9.11 (wrapper `./mvnw`), Java 25, jar "fat" con `maven-shade-plugin` |
 | Persistencia | Micronaut Data JDBC + HikariCP + Flyway (`src/main/resources/db/migration`) |
 | Seguridad | Micronaut Security JWT, HS256 (`JWT_SECRET`), contraseñas bcrypt (jBCrypt) |
 | SnapStart | `micronaut-crac`: suspende el pool Hikari antes del snapshot y lo refresca al restaurar |
@@ -51,7 +51,7 @@ Código:
 | `CORS_ALLOWED_ORIGINS` | no | `http://localhost:5173` | Orígenes permitidos, separados por comas |
 | `CONTEXT_PATH` | no | vacío | Prefijo de rutas. Vacío en el despliegue estándar (ver «Rutas `/api`»); `/api` solo sin la CloudFront Function |
 | `FLYWAY_ENABLED` | no | `true` | Ejecutar migraciones al arrancar |
-| `PORT` | no | `8080` | Puerto local (solo `./gradlew run`) |
+| `PORT` | no | `8080` | Puerto local (solo `./mvnw mn:run -Pdev`) |
 | `LOG_LEVEL` | no | `INFO` | Nivel de log raíz |
 | `DB_TEST_URL` | no | `jdbc:postgresql://localhost:5432/sheets_test` | BD que usan los tests |
 
@@ -59,8 +59,8 @@ Nunca se commitean secretos: `.env` y `*.local.env` están en `.gitignore`.
 
 ## Desarrollo local
 
-Requisitos: **JDK 25** y PostgreSQL local. Gradle 9 corre con JDK 17 o superior, y la toolchain
-de Java 25 se detecta sola si el JDK está instalado. Lo más simple es apuntar `JAVA_HOME` al JDK 25:
+Requisitos: **JDK 25** y PostgreSQL local. No hace falta instalar Maven: `./mvnw` descarga la
+versión fijada (3.9.11). Apunta `JAVA_HOME` al JDK 25:
 
 ```bash
 export JAVA_HOME=/opt/homebrew/opt/openjdk@25   # o ~/Library/Java/JavaVirtualMachines/openjdk-25.0.1/Contents/Home
@@ -70,8 +70,8 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@25   # o ~/Library/Java/JavaVirtualMa
 createdb sheets          # BD de desarrollo
 createdb sheets_test     # BD de tests
 
-./gradlew run            # entorno "dev": JWT_SECRET de desarrollo, DB_USER = tu usuario del SO
-# otro puerto:  PORT=18080 ./gradlew run
+./mvnw mn:run -Pdev      # entorno "dev": JWT_SECRET de desarrollo, DB_USER = tu usuario del SO
+# otro puerto:  PORT=18080 ./mvnw mn:run -Pdev
 ```
 
 Prueba rápida:
@@ -87,14 +87,14 @@ curl -s localhost:8080/me -H "Authorization: Bearer $TOKEN"
 # {"username":"demo@sheets.tt","displayName":"Usuario Demo"}
 ```
 
-> En `./gradlew run` se usa Netty como servidor (dependencia `developmentOnly`; no entra al jar
-> de Lambda). El servidor de pruebas `micronaut-function-aws-api-proxy-test` 4.11 está excluido
-> porque, junto con `micronaut-servlet-core` 5.6, intenta abrir el puerto dos veces.
+> El perfil `dev` agrega Netty como servidor HTTP solo para el arranque local; no entra al jar
+> de Lambda. Ese perfil también activa el entorno `dev` de Micronaut y usa `DB_USER` (o tu usuario
+> del SO) como rol de Postgres.
 
 ### Tests
 
 ```bash
-./gradlew test
+./mvnw test
 ```
 
 Los tests (JUnit 5) **invocan el handler real de Lambda** (`APIGatewayV2HTTPEventFunction`)
@@ -105,33 +105,39 @@ case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONT
 ## Empaquetado para Lambda
 
 ```bash
-./gradlew shadowJar
-# → build/libs/sheets-backend-lambda.jar
+./mvnw package           # tests + jar
+# → target/sheets-backend-lambda.jar
+
+docker build -t sheets-backend .   # imagen de Lambda (Dockerfile, base public.ecr.aws/lambda/java:25)
 ```
 
-- Runtime: `java25` (arquitectura `arm64`)
+- Runtime: imagen de contenedor `public.ecr.aws/lambda/java:25` (arquitectura `arm64`)
 - Bytecode: Java 25 (class file 69)
 - Handler: `io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction`
 
 ## Despliegue con AWS SAM
 
-`template.yaml` define la función (java25 en arm64/Graviton, 1024 MB, timeout 20 s, **SnapStart en
+`template.yaml` define la función (imagen de contenedor java25 en arm64/Graviton, 1024 MB, timeout 20 s, **SnapStart en
 `PublishedVersions`** con alias `live`), el HTTP API (`ANY /{proxy+}`, stage `$default`,
 payload 2.0) y un log group con retención de 14 días.
 
+En CI/CD lo hace el job `deploy` de `.github/workflows/pipeline.yml`. A mano, con una imagen ya
+publicada en ECR:
+
 ```bash
-./gradlew shadowJar
 sam validate
 sam deploy --guided \
   --stack-name sheets-backend \
   --capabilities CAPABILITY_IAM \
+  --image-repository <cuenta>.dkr.ecr.<región>.amazonaws.com/sheets-tt/b-sheet \
   --parameter-overrides \
+    ImageUri='<cuenta>.dkr.ecr.<región>.amazonaws.com/sheets-tt/b-sheet@sha256:...' \
     DbUrl='jdbc:postgresql://db.example.com:5432/sheets?sslmode=require' \
     DbUser=sheets DbPassword='***' JwtSecret='***(>=32)***' \
     CorsAllowedOrigins='https://app.example.com'   # ContextPath vacío (default)
 ```
 
-No hace falta `sam build`: `CodeUri` apunta directamente al jar que genera Gradle. La salida
+No hace falta `sam build`: la función usa la imagen indicada en `ImageUri`. La salida
 `ApiDomain` es el origen que CloudFront debe usar para `/api/*`.
 
 > **No pases `ContextPath='/api'`** si el API va detrás de la distribución de f-sheet:

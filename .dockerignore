@@ -1,8 +1,6 @@
 .git
 .github
-.gradle
-build
-out
+target
 .idea
 *.iml
 .env

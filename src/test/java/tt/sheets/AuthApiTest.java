@@ -44,7 +44,7 @@ class AuthApiTest {
         assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
         Map<String, Object> json = lambda.json(res);
         assertEquals(Map.of("access_token", json.get("access_token"), "token_type", "Bearer",
-                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of()), json);
+                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of("USUARIO")), json);
         String token = (String) json.get("access_token");
         assertNotNull(token);
         assertEquals(3, token.split("\\.").length, "debe ser un JWT");

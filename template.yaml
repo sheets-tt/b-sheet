@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  sheets-tt backend (login). Micronaut 4 en AWS Lambda (imagen java25 en ECR) + SnapStart detrás de
+  API Gateway HTTP API (payload v2). PostgreSQL vive FUERA de AWS.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: >
+      Imagen del backend en ECR, preferible por digest
+      (p.ej. 123456789012.dkr.ecr.us-east-1.amazonaws.com/sheets-tt/b-sheet@sha256:...).
+      La publica el workflow Release.
+  Stage:
+    Type: String
+    Default: prod
+    Description: Nombre lógico del entorno (solo para nombres/etiquetas).
+  DbUrl:
+    Type: String
+    Description: JDBC URL del Postgres externo. Usar SSL, p.ej. jdbc:postgresql://db.example.com:5432/sheets?sslmode=require
+  DbUser:
+    Type: String
+  DbPassword:
+    Type: String
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    NoEcho: true
+    MinLength: 32
+    Description: Secreto HS256 (>= 32 caracteres).
+  CorsAllowedOrigins:
+    Type: String
+    Default: ''
+    Description: Orígenes permitidos separados por coma (vacío si solo se usa vía CloudFront mismo origen).
+  ContextPath:
+    Type: String
+    Default: ''
+    Description: >
+      Prefijo de rutas del backend. Dejar VACÍO detrás de la distribución de f-sheet
+      (infra/cloudfront.yaml), cuya CloudFront Function quita /api antes de llegar a API Gateway.
+      Usar "/api" solo si CloudFront reenvía /api/* sin esa función.
+  FlywayEnabled:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  SubnetIds:
+    Type: CommaDelimitedList
+    Default: ''
+    Description: >
+      (Opcional) Subnets PRIVADAS con ruta a un NAT Gateway con Elastic IP, para que el Postgres
+      externo pueda hacer allowlist de una IP fija. Vacío = Lambda fuera de VPC (IP de salida variable).
+  SecurityGroupIds:
+    Type: CommaDelimitedList
+    Default: ''
+
+Conditions:
+  UseVpc: !Not [!Equals [!Join ['', !Ref SubnetIds], '']]
+  HasCorsOrigins: !Not [!Equals [!Ref CorsAllowedOrigins, '']]
+
+Globals:
+  Function:
+    Timeout: 20
+    MemorySize: 1024
+
+Resources:
+  BackendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sheets-backend-${Stage}
+      # Imagen de contenedor (Dockerfile, base public.ecr.aws/lambda/java:25). El handler va en su CMD.
+      PackageType: Image
+      ImageUri: !Ref ImageUri
+      # Graviton: ~20% más barato por GB-s. La imagen se construye para linux/arm64.
+      Architectures: [arm64]
+      MemorySize: 1024
+      Timeout: 20
+      SnapStart:
+        ApplyOn: PublishedVersions
+      # SnapStart solo aplica a versiones publicadas: el alias "live" apunta siempre a la última.
+      AutoPublishAlias: live
+      VpcConfig: !If
+        - UseVpc
+        - SubnetIds: !Ref SubnetIds
+          SecurityGroupIds: !Ref SecurityGroupIds
+        - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          DB_URL: !Ref DbUrl
+          DB_USER: !Ref DbUser
+          DB_PASSWORD: !Ref DbPassword
+          JWT_SECRET: !Ref JwtSecret
+          CORS_ALLOWED_ORIGINS: !If [HasCorsOrigins, !Ref CorsAllowedOrigins, 'http://localhost:5173']
+          CONTEXT_PATH: !Ref ContextPath
+          FLYWAY_ENABLED: !Ref FlywayEnabled
+          JAVA_TOOL_OPTIONS: -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+      Events:
+        Proxy:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /{proxy+}
+            Method: ANY
+            PayloadFormatVersion: '2.0'
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      # CORS lo resuelve Micronaut (CORS_ALLOWED_ORIGINS). No se configura aquí para evitar
+      # que API Gateway responda los preflight con reglas distintas.
+
+  BackendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/sheets-backend-${Stage}
+      RetentionInDays: 14
+
+Outputs:
+  ApiUrl:
+    Description: URL base del HTTP API (origen para CloudFront /api/*)
+    Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  ApiDomain:
+    Description: Dominio del HTTP API para usar como origin en CloudFront
+    Value: !Sub ${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  FunctionAlias:
+    Value: !Ref BackendFunctionAliaslive

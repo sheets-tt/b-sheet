@@ -1,0 +1,11 @@
+micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          secret:
+            generator:
+              secret: test-only-secret-0123456789abcdefghijklmnop
+datasources:
+  default:
+    url: ${DB_TEST_URL:`jdbc:postgresql://localhost:5432/sheets_test`}

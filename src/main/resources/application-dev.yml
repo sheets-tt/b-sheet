@@ -1,0 +1,9 @@
+# Solo desarrollo local (./gradlew run). Nunca usar en AWS.
+micronaut:
+  security:
+    token:
+      jwt:
+        signatures:
+          secret:
+            generator:
+              secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}

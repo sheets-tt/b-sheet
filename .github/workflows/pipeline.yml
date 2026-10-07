@@ -1,0 +1,228 @@
+name: Pipeline
+
+# Pipeline único:
+#   - Cualquier rama que no sea main  -> build + test.
+#   - main (al mezclar)                -> build + test -> versión y tag (imagen en ECR) -> deploy en Lambda.
+#
+# Versión semántica según el prefijo de la rama que se mezcló a main (se busca el PR del commit):
+#   major/* major-* breaking/* breaking-*   -> major   (v1.4.2 -> v2.0.0)
+#   feature/* feature-* feat/* feat-*       -> minor   (v1.4.2 -> v1.5.0)
+#   cualquier otra                          -> patch   (v1.4.2 -> v1.4.3)
+# "#major", "#minor" o "#patch" en el mensaje del commit tienen prioridad; "#none" no publica.
+# La versión la calcula anothrNick/github-tag-action; el tag se crea solo si la imagen se publicó.
+
+on:
+  push:
+    branches: ['**']
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Tipo de versión (solo en main)
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+concurrency:
+  # En ramas se cancela la ejecución anterior; en main se encolan para no repetir versiones.
+  group: pipeline-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'sheets-tt/b-sheet' }}
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sheets_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DB_TEST_URL: jdbc:postgresql://localhost:5432/sheets_test
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Build y tests
+        run: ./gradlew test shadowJar
+      - name: Reporte de tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports
+          path: build/reports/tests/test
+      - name: Build de la imagen (sin publicar)
+        if: github.ref != 'refs/heads/main'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+
+  release:
+    # Solo main: versión, imagen en ECR, tag y GitHub Release.
+    needs: build-test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # tag y release
+      pull-requests: read    # buscar la rama del PR mezclado
+      id-token: write        # OIDC hacia AWS
+    outputs:
+      version: ${{ steps.version.outputs.new_tag }}
+      image: ${{ steps.image.outputs.uri }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Tipo de versión según el prefijo de la rama
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_BUMP: ${{ inputs.bump }}
+        run: |
+          if [ -n "$MANUAL_BUMP" ]; then
+            head_ref="manual"; bump="$MANUAL_BUMP"
+          else
+            head_ref=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" --jq '.[0].head.ref // ""' || true)
+            case "$head_ref" in
+              major/*|major-*|breaking/*|breaking-*)   bump="major" ;;
+              feature/*|feature-*|feat/*|feat-*)       bump="minor" ;;
+              *)                                       bump="patch" ;;
+            esac
+          fi
+          echo "Rama '${head_ref:-sin PR}' -> $bump"
+          echo "bump=$bump" >> "$GITHUB_OUTPUT"
+
+      - name: Calcular versión
+        id: version
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DEFAULT_BUMP: ${{ steps.bump.outputs.bump }}
+          TAG_PREFIX: v
+          RELEASE_BRANCHES: main
+          DRY_RUN: true
+
+      - name: ¿Hay versión nueva?
+        id: check
+        env:
+          OLD: ${{ steps.version.outputs.old_tag }}
+          NEW: ${{ steps.version.outputs.new_tag }}
+        run: |
+          if [ -z "$NEW" ] || [ "$OLD" = "$NEW" ]; then
+            echo "Sin versión nueva (#none o sin commits nuevos)"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Versión: ${OLD:-ninguna} -> $NEW"; echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        if: steps.check.outputs.skip == 'false'
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - id: ecr
+        if: steps.check.outputs.skip == 'false'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - id: meta
+        if: steps.check.outputs.skip == 'false'
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.new_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.new_tag }}
+            type=sha,prefix=sha-
+          flavor: latest=true
+
+      - uses: docker/setup-qemu-action@v4
+        if: steps.check.outputs.skip == 'false'
+      - uses: docker/setup-buildx-action@v4
+        if: steps.check.outputs.skip == 'false'
+
+      - name: Build y publicación de la imagen
+        id: push
+        if: steps.check.outputs.skip == 'false'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          # Lambda no acepta índices con attestations; se publica una imagen simple.
+          provenance: false
+          sbom: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: URI de la imagen
+        id: image
+        if: steps.check.outputs.skip == 'false'
+        run: echo "uri=${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.push.outputs.digest }}" >> "$GITHUB_OUTPUT"
+
+      - name: Tag y GitHub Release
+        if: steps.check.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.new_tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          body: |
+            Imagen: `${{ steps.image.outputs.uri }}`
+
+  deploy:
+    # Solo main: despliega en Lambda (SAM) la imagen recién publicada.
+    needs: release
+    if: needs.release.outputs.image != ''
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: aws-actions/setup-sam@v3
+        with:
+          use-installer: true
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: sam deploy
+        env:
+          DB_URL: ${{ secrets.DB_URL }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
+          IMAGE_URI: ${{ needs.release.outputs.image }}
+          STACK_NAME: ${{ vars.SAM_STACK_NAME || 'sheets-backend' }}
+        run: |
+          sam deploy \
+            --stack-name "$STACK_NAME" \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset --no-fail-on-empty-changeset \
+            --image-repository "${IMAGE_URI%@*}" \
+            --parameter-overrides \
+              "ImageUri=$IMAGE_URI" \
+              "DbUrl=$DB_URL" "DbUser=$DB_USER" "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" \
+              "CorsAllowedOrigins=$CORS_ALLOWED_ORIGINS"

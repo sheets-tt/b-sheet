@@ -1,0 +1,136 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  CI/CD de b-sheet: repositorio ECR para la imagen de Lambda y rol IAM que GitHub Actions
+  asume por OIDC (sin access keys). Desplegar una vez por cuenta/región.
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Default: sheets-tt
+  GitHubRepo:
+    Type: String
+    Default: b-sheet
+  EcrRepositoryName:
+    Type: String
+    Default: sheets-tt/b-sheet
+  StackNamePrefix:
+    Type: String
+    Default: sheets-backend
+    Description: Prefijo del stack SAM y de la función (sheets-backend-<stage>).
+  CreateOidcProvider:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: "false si la cuenta ya tiene el proveedor OIDC token.actions.githubusercontent.com"
+
+Conditions:
+  CreateOidc: !Equals [!Ref CreateOidcProvider, 'true']
+
+Resources:
+  GitHubOidc:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidc
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+
+  Repository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref EcrRepositoryName
+      ImageScanningConfiguration: { ScanOnPush: true }
+      # MUTABLE porque el workflow mueve el tag "latest" y "X.Y".
+      ImageTagMutability: MUTABLE
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Conservar las 30 imágenes más recientes",
+            "selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":30},
+            "action":{"type":"expire"}}]}
+      # Lambda necesita poder leer la imagen.
+      RepositoryPolicyText:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: LambdaPull
+            Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: [ecr:BatchGetImage, ecr:GetDownloadUrlForLayer]
+
+  CiRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub github-${GitHubRepo}-ci
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                # Solo main y el environment "production" de este repo.
+                token.actions.githubusercontent.com:sub:
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:ref:refs/heads/main
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:pull_request
+                  - !Sub repo:${GitHubOrg}/${GitHubRepo}:environment:production
+      Policies:
+        - PolicyName: ecr-push
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ecr:GetAuthorizationToken
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:BatchGetImage
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                  - ecr:DescribeImages
+                  - ecr:DescribeRepositories
+                Resource: !GetAtt Repository.Arn
+        - PolicyName: sam-deploy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: cloudformation:*
+                Resource:
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/${StackNamePrefix}*/*
+                  - !Sub arn:${AWS::Partition}:cloudformation:${AWS::Region}:aws:transform/Serverless-2016-10-31
+              - Effect: Allow
+                Action: [cloudformation:ValidateTemplate, cloudformation:GetTemplateSummary]
+                Resource: '*'
+              - Effect: Allow
+                Action: lambda:*
+                Resource:
+                  - !Sub arn:${AWS::Partition}:lambda:${AWS::Region}:${AWS::AccountId}:function:${StackNamePrefix}-*
+              - Effect: Allow
+                Action: apigateway:*
+                Resource: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}::/*
+              - Effect: Allow
+                Action: [logs:CreateLogGroup, logs:DeleteLogGroup, logs:PutRetentionPolicy, logs:DescribeLogGroups, logs:TagResource]
+                Resource: '*'
+              - Effect: Allow
+                Action: [iam:CreateRole, iam:DeleteRole, iam:GetRole, iam:PassRole, iam:TagRole, iam:UntagRole,
+                         iam:AttachRolePolicy, iam:DetachRolePolicy, iam:PutRolePolicy, iam:DeleteRolePolicy, iam:GetRolePolicy]
+                Resource: !Sub arn:${AWS::Partition}:iam::${AWS::AccountId}:role/${StackNamePrefix}*
+              - Effect: Allow
+                Action: [ec2:DescribeSubnets, ec2:DescribeSecurityGroups, ec2:DescribeVpcs]
+                Resource: '*'
+
+Outputs:
+  AwsRoleArn:
+    Description: Variable de GitHub AWS_ROLE_ARN
+    Value: !GetAtt CiRole.Arn
+  EcrRepository:
+    Description: Variable de GitHub ECR_REPOSITORY
+    Value: !Ref EcrRepositoryName
+  EcrRepositoryUri:
+    Value: !GetAtt Repository.RepositoryUri

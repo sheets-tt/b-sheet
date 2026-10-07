@@ -30,57 +30,15 @@ Móvil (Flutter) ─────────────────────
 Código:
 
 - `tt.sheets.HealthController` — `GET /health` → `{"status":"UP"}` (no toca la BD).
-- `tt.sheets.auth.AuthController` — `POST /auth/login`: busca la cuenta por correo
-  (case-insensitive, solo `estado_cuenta = 'ACTIVA'`), valida bcrypt (tiempo constante aunque la
-  cuenta no exista) y emite el JWT con el `rol` de la cuenta en `roles`.
+- `tt.sheets.auth.AuthController` — `POST /auth/login`: busca el usuario (case-insensitive),
+  valida bcrypt (tiempo constante aunque el usuario no exista) y emite el JWT.
   200 con `access_token`, `token_type`, `expires_in`, `username`, `roles`; 401 `{"message": "..."}`;
   400 si faltan campos o están vacíos.
-- `tt.sheets.auth.MeController` — `GET /me` (Bearer) → `{"username": correo, "displayName":
-  nombre_completo}`; 401 sin token, con token inválido o expirado, o si la cuenta ya no está activa.
-- `tt.sheets.cuenta` — entidad `Cuenta` (tabla `cuenta`) y repositorio.
-- Migraciones (ver [Base de datos](#base-de-datos-flyway)): `V1__esquema_inicial.sql` (esquema
-  completo del ER) y `V2__cuenta_demo.sql` (cuenta demo `demo@sheets.tt` / `Demo1234!`, "Usuario Demo").
-
-## Base de datos (Flyway)
-
-El esquema vive en `src/main/resources/db/migration` y lo aplica **Flyway**. `V1__esquema_inicial.sql`
-crea las tablas del diagrama ER "Sistema móvil y web":
-
-| Tabla | Relaciones |
-|---|---|
-| `cuenta` | Login: `correo` único sin distinguir mayúsculas, `contrasena_hash` (bcrypt), `rol` (`ADMIN`/`USUARIO`), `estado_cuenta` (`ACTIVA`/`INACTIVA`/`BLOQUEADA`) |
-| `dispositivo` | `identificador_unico` único, `estado_dispositivo` (`ACTIVO`/`INACTIVO`/`REVOCADO`) |
-| `cuenta_dispositivo` | → `cuenta`, → `dispositivo`. Historial de asociaciones; solo una vigente (`fecha_desasociacion IS NULL`) por pareja |
-| `arbol` | → `cuenta`, → `dispositivo`. Coordenadas `NUMERIC(9,6)` con rango validado |
-| `zona_follaje` | → `cuenta`, → `dispositivo`. Centro + `radio_metros > 0` |
-| `analisis` | → `zona_follaje` (obligatoria), → `arbol` (**opcional**). `estado_sincronizacion` (`PENDIENTE`/`SINCRONIZADO`/`ERROR`), `confianza` 0–1 |
-| `analisis_cromatico` | → `analisis`. `pct_sano`, `pct_regular`, `pct_danado`, `pct_incierto` (0–100) |
-
-Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_schema_history`
-(Flyway 10.22.0 en ambos casos):
-
-1. **Flyway en Docker** (`docker-compose.yml`), para construir o actualizar una base sin arrancar
-   el backend:
-   ```bash
-   docker compose up -d db          # Postgres 17 en localhost:5434 (usuario/clave sheets/sheets)
-   docker compose run --rm flyway   # migrate + info
-   docker compose run --rm flyway validate
-
-   # Contra una base existente (p.ej. el Postgres externo de producción):
-   FLYWAY_URL='jdbc:postgresql://<host>:5432/sheets?sslmode=require' \
-   FLYWAY_USER=<usuario> FLYWAY_PASSWORD='<clave>' \
-     docker compose run --rm --no-deps flyway
-
-   docker compose down              # -v borra también los datos del volumen
-   ```
-   Para usar esa base con el backend local: `DB_URL=jdbc:postgresql://localhost:5434/sheets
-   DB_USER=sheets DB_PASSWORD=sheets ./mvnw mn:run -Pdev`.
-2. **Al arrancar el backend** (`FLYWAY_ENABLED=true`, el default): Micronaut aplica lo que falte.
-   Si la base ya está al día (por ejemplo, migrada con Docker), no hace nada.
-
-Reglas: una migración aplicada **no se edita**; cualquier cambio va en un archivo nuevo
-`V3__descripcion.sql`, `V4__...`. Flyway rechaza arrancar si el checksum de una migración aplicada
-cambia.
+- `tt.sheets.auth.MeController` — `GET /me` (Bearer) → `{"username","displayName"}`; 401 sin token
+  o con token inválido o expirado.
+- `tt.sheets.user` — entidad `users` y repositorio.
+- Migraciones: `V1__create_users.sql` (tabla + índice único `lower(username)`),
+  `V2__demo_user.sql` (usuario demo `demo@sheets.tt` / `Demo1234!`, "Usuario Demo").
 
 ## Variables de entorno
 
@@ -206,7 +164,7 @@ Notas:
   `micronaut-crac` suspende Hikari antes del snapshot (`allow-pool-suspension: true`), así que
   no se restauran conexiones TCP muertas. Flyway corre durante la inicialización, es decir,
   al publicar la versión: **la BD debe ser alcanzable al desplegar**. Si no lo es, despliega
-  con `FlywayEnabled=false` y migra aparte con Flyway en Docker (ver [Base de datos](#base-de-datos-flyway)).
+  con `FlywayEnabled=false` y migra aparte.
 - **Arranque en frío**: `JAVA_TOOL_OPTIONS=-XX:+TieredCompilation -XX:TieredStopAtLevel=1`,
   logs concisos (CloudWatch ya agrega fecha y request id), Hikari y Flyway en `WARN`.
 

@@ -185,3 +185,19 @@ Notas:
   2 × instancias. Limita `ReservedConcurrentExecutions` o pon un pooler (PgBouncer) delante
   del Postgres si su `max_connections` es bajo.
 - **Latencia**: cada query cruza Internet. Elige la región de AWS más cercana a la BD.
+
+## Seguridad de dependencias
+
+| Pieza | Qué hace | Cuándo |
+|---|---|---|
+| **Dependabot** (`.github/dependabot.yml`) | Abre PRs que **arreglan** dependencias vulnerables o desactualizadas, además de las imágenes base del `Dockerfile` y las GitHub Actions | En cuanto sale un aviso (security updates) y cada lunes (version updates) |
+| **Dependency scan** (`.github/workflows/dependency-scan.yml`) | OSV-Scanner revisa `pom.xml` (directas y transitivas, resueltas contra Maven Central), **comenta el resultado en el PR** y lo **falla** si hay vulnerabilidades conocidas | Cada PR, cada push a `main` y cada lunes |
+| **CodeQL** (`.github/workflows/codeql.yml`) | Analiza el código Java (no las dependencias) | **Apagado.** Requiere GitHub Advanced Security en repos privados; se activa con la variable `CODEQL_ENABLED=true` |
+
+Para que Dependabot abra los PRs de seguridad, activa en **Settings → Code security**:
+*Dependency graph*, *Dependabot alerts* y *Dependabot security updates* (gratis en repos privados).
+
+Escaneo local, igual que en CI:
+```bash
+docker run --rm -v "$PWD:/src:ro" ghcr.io/google/osv-scanner:v2.6.0 scan source -r --data-source=native /src
+```

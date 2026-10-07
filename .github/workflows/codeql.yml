@@ -1,0 +1,41 @@
+name: CodeQL
+
+# Análisis de seguridad del CÓDIGO Java (no de dependencias) con CodeQL.
+# En repositorios privados requiere GitHub Advanced Security / Code Security (licencia de CodeQL
+# y pestaña Security). Queda listo pero APAGADO: para activarlo, con la licencia habilitada,
+# crea la variable de repositorio CODEQL_ENABLED=true.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 13 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    if: vars.CODEQL_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # publicar resultados en Security → Code scanning
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: java-kotlin
+          build-mode: manual
+          queries: security-extended
+      - name: Compilar
+        run: ./mvnw -B -q compile -DskipTests
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:java-kotlin

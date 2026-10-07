@@ -26,6 +26,10 @@
     <micronaut.aot.enabled>false</micronaut.aot.enabled>
     <exec.mainClass>tt.sheets.Application</exec.mainClass>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- Parches de seguridad sobre las versiones del BOM de Micronaut 4.10.20 (detectados por OSV-Scanner).
+         Quitar cuando un micronaut-parent nuevo ya traiga estas versiones o superiores. -->
+    <jackson.version>2.21.7</jackson.version>                 <!-- GHSA-7hhh-6rmp-j9qf, GHSA-p6pp-m3f8-5c89, GHSA-cxp5-3px4-pw24, GHSA-wv8q-qhhj-9h54 -->
+    <postgres.driver.version>42.7.14</postgres.driver.version> <!-- GHSA-98qh-xjc8-98pq, GHSA-j92g-9f8w-j867 -->
     <!-- Rol de Postgres para tests y arranque local: DB_USER o, si no existe, el usuario del SO. -->
     <db.user>${user.name}</db.user>
   </properties>

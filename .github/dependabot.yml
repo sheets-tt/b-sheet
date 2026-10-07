@@ -1,0 +1,56 @@
+# Dependabot: el bot que ARREGLA dependencias vulnerables abriendo PRs.
+#  - Security updates (Settings → Code security → Dependabot security updates): PR en cuanto se
+#    publica un aviso que afecta a una dependencia del pom.xml, del Dockerfile o de los workflows.
+#  - Version updates (esta configuración): revisión semanal de versiones nuevas.
+# Las ramas se llaman dependabot/...; al mezclarlas, el pipeline publica una versión patch.
+
+version: 2
+updates:
+  - package-ecosystem: maven
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Mexico_City
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: fix
+      include: scope
+    labels: [dependencies, java]
+    groups:
+      # Todas las librerías de Micronaut en un solo PR (suben juntas por el BOM).
+      micronaut:
+        patterns: ["io.micronaut*"]
+      # El resto de parches y menores juntos, para no llenar de PRs.
+      maven-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # Micronaut 5 es una migración mayor: se hace a mano, no por Dependabot.
+      - dependency-name: io.micronaut.platform:micronaut-parent
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Mexico_City
+    commit-message:
+      prefix: fix
+    labels: [dependencies, docker]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Mexico_City
+    commit-message:
+      prefix: chore
+    labels: [dependencies, github-actions]
+    groups:
+      actions:
+        patterns: ["*"]

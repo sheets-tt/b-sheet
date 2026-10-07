@@ -1,0 +1,70 @@
+name: Dependency scan
+
+# Revisa las dependencias Maven (directas y transitivas) contra la base de vulnerabilidades OSV
+# (incluye los avisos de GitHub, GHSA). Gratis y sin GitHub Advanced Security.
+#   - En cada PR: comenta el resultado en el PR y falla si hay vulnerabilidades conocidas.
+#   - En main y cada lunes: detecta vulnerabilidades nuevas publicadas sobre lo ya mezclado.
+# Para arreglarlas, Dependabot abre los PRs (ver .github/dependabot.yml).
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 12 * * 1"   # lunes 06:00 en Ciudad de México
+  workflow_dispatch:
+
+concurrency:
+  group: dependency-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  osv-scanner:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write   # comentario en el PR
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Escanear pom.xml con OSV-Scanner
+        id: scan
+        # --data-source=native resuelve el árbol transitivo contra Maven Central (deps.dev a veces
+        # no conoce versiones recientes y el escaneo fallaría sin analizar nada).
+        run: |
+          set +e
+          mkdir -p "$RUNNER_TEMP/osv"
+          docker run --rm -v "$PWD:/src:ro" -v "$RUNNER_TEMP/osv:/out" ghcr.io/google/osv-scanner:v2.6.0 \
+            scan source -r --data-source=native --format markdown --output /out/report.md /src > osv-log.txt 2>&1
+          code=$?
+          set -e
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          cat osv-log.txt
+          {
+            echo "## Dependency scan (OSV-Scanner)"
+            echo
+            case "$code" in
+              0) echo "✅ Sin vulnerabilidades conocidas en las dependencias Maven." ;;
+              1) echo "❌ Se encontraron dependencias vulnerables:"; echo; grep -E '^(Total|\|)' "$RUNNER_TEMP/osv/report.md" ;;
+              *) echo "⚠️ El escaneo no pudo completarse (código $code). Revisa el log del job."; echo
+                 echo '```'; tail -20 osv-log.txt; echo '```' ;;
+            esac
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comentar en el PR
+        # Los PRs de Dependabot y de forks tienen token de solo lectura: ahí basta el resumen del job.
+        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: dependency-scan
+          path: comment.md
+
+      - name: Resultado
+        if: steps.scan.outputs.exit_code != '0'
+        run: |
+          echo "::error::OSV-Scanner terminó con código ${{ steps.scan.outputs.exit_code }} (1 = vulnerabilidades, otro = error de escaneo)"
+          exit 1

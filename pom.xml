@@ -34,6 +34,21 @@
     <db.user>${user.name}</db.user>
   </properties>
 
+  <!-- flyway-parent declara este repo de GitHub Packages (pide token, responde 401). Todo lo que usamos de Flyway
+       está en Maven Central, así que se redefine con el mismo id y deshabilitado para que Maven no lo consulte. -->
+  <repositories>
+    <repository>
+      <id>flyway-community-db-support</id>
+      <url>https://maven.pkg.github.com/flyway/flyway-community-db-support</url>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <snapshots>
+        <enabled>false</enabled>
+      </snapshots>
+    </repository>
+  </repositories>
+
   <dependencies>
     <!-- AWS Lambda detrás de API Gateway HTTP API payload v2. -->
     <dependency>

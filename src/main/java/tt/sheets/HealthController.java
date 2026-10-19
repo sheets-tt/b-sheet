@@ -7,7 +7,6 @@ import io.micronaut.security.rules.SecurityRule;
 
 import java.util.Map;
 
-/** GET /health — liveness simple, no toca la BD (barato en cada invocación Lambda). */
 @Controller("/health")
 @Secured(SecurityRule.IS_ANONYMOUS)
 public class HealthController {

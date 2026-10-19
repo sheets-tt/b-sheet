@@ -15,6 +15,9 @@ Thumbs.db
 # local secrets
 .env
 *.local.env
+# secrets/: solo se suben los archivos cifrados con SOPS (ver .sops.yaml)
+secrets/*
+!secrets/*.enc.env
 # SAM
 .aws-sam/
 samconfig.toml

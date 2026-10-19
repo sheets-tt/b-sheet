@@ -1,0 +1,7 @@
+# SOPS cifra los archivos de secrets/ para estas llaves públicas; solo sus llaves privadas los descifran.
+# Llave: ~/.ssh/sheets_secrets (SHA256:jft8QEI3jshxe/PQRsDH8N5ZpBZ49qd6lMRrVCldmUw), con passphrase.
+# Para sumar a alguien: se agrega su llave pública separada por coma y corre `sops updatekeys secrets/<archivo>`.
+creation_rules:
+  - path_regex: secrets/.*\.enc\.env$
+    age: >-
+      ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJU1EUXAGNuh+2YwR88HiJhBVF1p7DqfyO0EfwZkoGK6

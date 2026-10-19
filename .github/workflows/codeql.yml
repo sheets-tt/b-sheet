@@ -1,16 +1,16 @@
 name: CodeQL
 
 # Análisis de seguridad del CÓDIGO Java (no de dependencias) con CodeQL.
-# En repositorios privados requiere GitHub Advanced Security / Code Security (licencia de CodeQL
-# y pestaña Security). Queda listo pero APAGADO: para activarlo, con la licencia habilitada,
-# crea la variable de repositorio CODEQL_ENABLED=true.
+# El repo es público, así que CodeQL es gratis. Se enciende con la variable de repositorio
+# CODEQL_ENABLED=true; el "Default setup" de Code scanning debe estar apagado o rechaza estos resultados.
 
 on:
   pull_request:
   push:
     branches: [main]
   schedule:
-    - cron: "0 13 * * 1"
+    - cron: "0 13 * * *"   # diario a las 13:00 UTC = 7:00 en Ciudad de México (UTC-6, sin horario de verano)
+  workflow_dispatch:       # corrida manual desde Actions → CodeQL → Run workflow
 
 permissions:
   contents: read

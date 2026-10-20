@@ -9,3 +9,10 @@ micronaut:
 datasources:
   default:
     url: ${DB_TEST_URL:`jdbc:postgresql://localhost:5432/sheets_test`}
+# db/demo (cuenta demo@sheets.tt) solo en tests y dev; producción usa únicamente db/migration.
+flyway:
+  datasources:
+    default:
+      locations:
+        - classpath:db/migration
+        - classpath:db/demo

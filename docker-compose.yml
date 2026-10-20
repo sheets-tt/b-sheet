@@ -9,8 +9,8 @@
 #   sops exec-env secrets/neon.enc.env 'docker compose run --rm flyway-neon migrate'
 
 x-flyway: &flyway
-  # Misma versión de Flyway que usa el backend (micronaut-flyway -> Flyway 10.22.0).
-  image: flyway/flyway:10.22.0-alpine
+  # Misma versión de Flyway que usa el backend (micronaut-flyway 8.1.1 -> Flyway 12.11.0).
+  image: flyway/flyway:12.11.0-alpine
   entrypoint: ["flyway"]
   command: ["migrate", "info"]
 

@@ -68,7 +68,7 @@ Hay dos carpetas de migraciones:
 llegan a producción.
 
 Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_schema_history`
-(Flyway 10.22.0 en ambos casos):
+(Flyway 12.11.0 en ambos casos):
 
 1. **Flyway en Docker** (`docker-compose.yml`), para construir o actualizar una base sin arrancar
    el backend:

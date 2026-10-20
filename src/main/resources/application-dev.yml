@@ -7,3 +7,10 @@ micronaut:
           secret:
             generator:
               secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef}
+# db/demo (cuenta demo@sheets.tt) solo en tests y dev; producción usa únicamente db/migration.
+flyway:
+  datasources:
+    default:
+      locations:
+        - classpath:db/migration
+        - classpath:db/demo

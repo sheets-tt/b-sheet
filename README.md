@@ -38,8 +38,9 @@ Código:
 - `tt.sheets.auth.MeController` — `GET /me` (Bearer) → `{"username": correo, "displayName":
   nombre_completo}`; 401 sin token, con token inválido o expirado, o si la cuenta ya no está activa.
 - `tt.sheets.cuenta` — entidad `Cuenta` (tabla `cuenta`) y repositorio.
-- Migraciones (ver [Base de datos](#base-de-datos-flyway)): `V1__esquema_inicial.sql` (esquema
-  completo del ER) y `V2__cuenta_demo.sql` (cuenta demo `demo@sheets.tt` / `Demo1234!`, "Usuario Demo").
+- Migraciones (ver [Base de datos](#base-de-datos-flyway)): `db/migration/V1__esquema_inicial.sql`
+  (esquema completo del ER) y, **solo en desarrollo y tests**, `db/demo/V2__cuenta_demo.sql`
+  (cuenta demo `demo@sheets.tt` / `Demo1234!`, "Usuario Demo").
 
 ## Base de datos (Flyway)
 
@@ -56,31 +57,59 @@ crea las tablas del diagrama ER "Sistema móvil y web":
 | `analisis` | → `zona_follaje` (obligatoria), → `arbol` (**opcional**). `estado_sincronizacion` (`PENDIENTE`/`SINCRONIZADO`/`ERROR`), `confianza` 0–1 |
 | `analisis_cromatico` | → `analisis`. `pct_sano`, `pct_regular`, `pct_danado`, `pct_incierto` (0–100) |
 
+Hay dos carpetas de migraciones:
+
+| Carpeta | Contenido | Dónde se aplica |
+|---|---|---|
+| `db/migration` | Esquema (`V1`, `V3`, …) | Siempre: producción (Neon), desarrollo y tests |
+| `db/demo` | Datos de prueba: cuenta demo (`V2`) | Solo desarrollo (`application-dev.yml`) y tests (`application-test.yml`) |
+
+`ProductionMigrationsTest` falla si alguna migración de `db/migration` inserta cuentas, porque esas
+llegan a producción.
+
 Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_schema_history`
 (Flyway 10.22.0 en ambos casos):
 
 1. **Flyway en Docker** (`docker-compose.yml`), para construir o actualizar una base sin arrancar
    el backend:
    ```bash
-   docker compose up -d db          # Postgres 17 en localhost:5434 (usuario/clave sheets/sheets)
-   docker compose run --rm flyway   # migrate + info
+   # Local: Postgres 17 en localhost:5434 (usuario/clave sheets/sheets), con db/migration + db/demo
+   docker compose up -d db
+   docker compose run --rm flyway            # migrate + info
    docker compose run --rm flyway validate
+   docker compose down                       # -v borra también los datos del volumen
 
-   # Contra una base existente (p.ej. el Postgres externo de producción):
-   FLYWAY_URL='jdbc:postgresql://<host>:5432/sheets?sslmode=require' \
-   FLYWAY_USER=<usuario> FLYWAY_PASSWORD='<clave>' \
-     docker compose run --rm --no-deps flyway
-
-   docker compose down              # -v borra también los datos del volumen
+   # Neon (producción): solo db/migration; las credenciales salen de secrets/neon.enc.env (SOPS)
+   sops exec-env secrets/neon.enc.env 'docker compose run --rm flyway-neon info'
+   sops exec-env secrets/neon.enc.env 'docker compose run --rm flyway-neon migrate'
    ```
-   Para usar esa base con el backend local: `DB_URL=jdbc:postgresql://localhost:5434/sheets
+   El servicio `flyway` siempre apunta al `db` local, aunque haya variables de Neon en el entorno,
+   así que la cuenta demo no puede llegar a producción por error.
+   Para usar la base local con el backend: `DB_URL=jdbc:postgresql://localhost:5434/sheets
    DB_USER=sheets DB_PASSWORD=sheets ./mvnw mn:run -Pdev`.
 2. **Al arrancar el backend** (`FLYWAY_ENABLED=true`, el default): Micronaut aplica lo que falte.
    Si la base ya está al día (por ejemplo, migrada con Docker), no hace nada.
 
+Para comprobar que Neon tiene todas las migraciones de `db/migration` (se salta sin credenciales):
+```bash
+sops exec-env secrets/neon.enc.env './mvnw test -Dtest=NeonDatabaseTest'
+```
+
+### Secretos de Neon (SOPS + age)
+
+`secrets/neon.enc.env` guarda `FLYWAY_URL`, `FLYWAY_USER` y `FLYWAY_PASSWORD` cifrados con SOPS para
+la llave pública de `.sops.yaml`. Para descifrarlo hace falta la llave privada (con passphrase) y
+`SOPS_AGE_SSH_PRIVATE_KEY_FILE` apuntando a ella. Usa la conexión **directa** de Neon (el host sin
+`-pooler`), porque Flyway necesita bloqueos que el pooler no soporta.
+
+```bash
+sops edit secrets/neon.enc.env                                  # editar (se vuelve a cifrar al guardar)
+sops set secrets/neon.enc.env '["FLYWAY_URL"]' '"jdbc:..."'     # cambiar un solo valor
+```
+
 Reglas: una migración aplicada **no se edita**; cualquier cambio va en un archivo nuevo
 `V3__descripcion.sql`, `V4__...`. Flyway rechaza arrancar si el checksum de una migración aplicada
-cambia.
+cambia. El número `V2` ya lo usa `db/demo`: no lo repitas en `db/migration`.
 
 ## Variables de entorno
 

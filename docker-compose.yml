@@ -1,13 +1,18 @@
 # Base de datos con Flyway en Docker.
 #
-#   docker compose up -d db               # Postgres 17 local (puerto 5434 por defecto)
-#   docker compose run --rm flyway        # aplica las migraciones (db/migration) y muestra el estado
+# Local (Postgres 17 en Docker, puerto 5434 por defecto), con la cuenta demo de db/demo:
+#   docker compose up -d db
+#   docker compose run --rm flyway                # migrate + info
 #
-# Contra una base existente (p.ej. el Postgres externo de producción), sin levantar "db":
-#   FLYWAY_URL='jdbc:postgresql://host:5432/sheets?sslmode=require' FLYWAY_USER=... FLYWAY_PASSWORD=... \
-#     docker compose run --rm --no-deps flyway
-#
-# Otros comandos: docker compose run --rm flyway info | validate
+# Neon (producción): solo db/migration, credenciales descifradas por SOPS:
+#   sops exec-env secrets/neon.enc.env 'docker compose run --rm flyway-neon info'
+#   sops exec-env secrets/neon.enc.env 'docker compose run --rm flyway-neon migrate'
+
+x-flyway: &flyway
+  # Misma versión de Flyway que usa el backend (micronaut-flyway -> Flyway 10.22.0).
+  image: flyway/flyway:10.22.0-alpine
+  entrypoint: ["flyway"]
+  command: ["migrate", "info"]
 
 services:
   db:
@@ -26,23 +31,36 @@ services:
       timeout: 3s
       retries: 20
 
+  # Local: siempre contra "db" (no lee FLYWAY_URL, así nunca llega a Neon) e incluye db/demo.
   flyway:
-    # Misma versión de Flyway que usa el backend (micronaut-flyway 4.10.20 -> Flyway 10.22.0).
-    image: flyway/flyway:10.22.0-alpine
+    <<: *flyway
     depends_on:
       db:
         condition: service_healthy
     environment:
-      FLYWAY_URL: ${FLYWAY_URL:-jdbc:postgresql://db:5432/sheets}
-      FLYWAY_USER: ${FLYWAY_USER:-sheets}
-      FLYWAY_PASSWORD: ${FLYWAY_PASSWORD:-sheets}
+      FLYWAY_URL: jdbc:postgresql://db:5432/sheets
+      FLYWAY_USER: ${DB_USER:-sheets}
+      FLYWAY_PASSWORD: ${DB_PASSWORD:-sheets}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql,filesystem:/flyway/demo
+      FLYWAY_CONNECT_RETRIES: "10"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
+    volumes:
+      - ./src/main/resources/db/migration:/flyway/sql:ro
+      - ./src/main/resources/db/demo:/flyway/demo:ro
+
+  # Neon (producción): solo db/migration y no levanta "db".
+  # FLYWAY_URL/USER/PASSWORD sin valor: se toman del entorno que arma sops exec-env.
+  flyway-neon:
+    <<: *flyway
+    environment:
+      FLYWAY_URL:
+      FLYWAY_USER:
+      FLYWAY_PASSWORD:
       FLYWAY_LOCATIONS: filesystem:/flyway/sql
       FLYWAY_CONNECT_RETRIES: "10"
       FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
     volumes:
       - ./src/main/resources/db/migration:/flyway/sql:ro
-    entrypoint: ["flyway"]
-    command: ["migrate", "info"]
 
 volumes:
   sheets-db:

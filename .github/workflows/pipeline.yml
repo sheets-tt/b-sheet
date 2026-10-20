@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18   # misma versión mayor que Neon (producción) y el compose local
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

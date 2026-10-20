@@ -73,7 +73,7 @@ Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_
 1. **Flyway en Docker** (`docker-compose.yml`), para construir o actualizar una base sin arrancar
    el backend:
    ```bash
-   # Local: Postgres 17 en localhost:5434 (usuario/clave sheets/sheets), con db/migration + db/demo
+   # Local: Postgres 18 en localhost:5434 (usuario/clave sheets/sheets), con db/migration + db/demo
    docker compose up -d db
    docker compose run --rm flyway            # migrate + info
    docker compose run --rm flyway validate

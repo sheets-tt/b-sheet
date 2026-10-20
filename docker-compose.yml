@@ -1,6 +1,6 @@
 # Base de datos con Flyway en Docker.
 #
-# Local (Postgres 17 en Docker, puerto 5434 por defecto), con la cuenta demo de db/demo:
+# Local (Postgres 18 en Docker, puerto 5434 por defecto), con la cuenta demo de db/demo:
 #   docker compose up -d db
 #   docker compose run --rm flyway                # migrate + info
 #
@@ -16,7 +16,7 @@ x-flyway: &flyway
 
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: sheets
       POSTGRES_USER: ${DB_USER:-sheets}
@@ -24,7 +24,9 @@ services:
     ports:
       - "${DB_PORT:-5434}:5432"   # 5432 y 5433 ya están ocupados en esta máquina
     volumes:
-      - sheets-db:/var/lib/postgresql/data
+      # Postgres 18 guarda los datos en /var/lib/postgresql/18/docker: el volumen va en /var/lib/postgresql.
+      # Volumen nuevo (sheets-db-18): los datos de Postgres 17 no se pueden abrir con 18.
+      - sheets-db-18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 3s
@@ -63,4 +65,4 @@ services:
       - ./src/main/resources/db/migration:/flyway/sql:ro
 
 volumes:
-  sheets-db:
+  sheets-db-18:

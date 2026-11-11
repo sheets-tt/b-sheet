@@ -44,10 +44,26 @@ class AuthApiTest {
         assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
         Map<String, Object> json = lambda.json(res);
         assertEquals(Map.of("access_token", json.get("access_token"), "token_type", "Bearer",
-                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of("USUARIO")), json);
+                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of("EXPERTO_CAMPO")), json);
         String token = (String) json.get("access_token");
         assertNotNull(token);
         assertEquals(3, token.split("\\.").length, "debe ser un JWT");
+    }
+
+    @Test
+    void loginAdminReturnsAdministradorRole() {
+        APIGatewayV2HTTPResponse res = lambda.post("/auth/login",
+                "{\"username\":\"admin@sheets.tt\",\"password\":\"Demo1234!\"}");
+        assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
+        assertEquals(List.of("ADMINISTRADOR"), lambda.json(res).get("roles"));
+    }
+
+    @Test
+    void loginDeactivatedAccountIs401() {
+        // estado_cuenta = 'desactivada' en la BD de TT_BKN.
+        APIGatewayV2HTTPResponse res = lambda.post("/auth/login",
+                "{\"username\":\"baja@sheets.tt\",\"password\":\"Demo1234!\"}");
+        assertEquals(401, res.getStatusCode());
     }
 
     @Test

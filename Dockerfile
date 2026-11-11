@@ -14,4 +14,4 @@ RUN --mount=type=cache,target=/root/.m2 ./mvnw -B -q package -DskipTests
 # Imagen base oficial de Lambda: trae el runtime java25 y el Runtime Interface Emulator para pruebas locales.
 FROM public.ecr.aws/lambda/java:25
 COPY --from=build /src/target/sheets-backend-lambda.jar ${LAMBDA_TASK_ROOT}/lib/
-CMD ["io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction::handleRequest"]
+CMD ["tt.sheets.LambdaHandler::handleRequest"]

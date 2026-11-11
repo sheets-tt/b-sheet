@@ -21,3 +21,11 @@ secrets/*
 # SAM
 .aws-sam/
 samconfig.toml
+
+# Credenciales en claro: nunca al repo (Neon se filtró así en el archivo "1").
+# Los secretos versionados van cifrados con SOPS en secrets/*.enc.env.
+*.env
+!secrets/*.enc.env
+.env*
+!.env.example
+/1

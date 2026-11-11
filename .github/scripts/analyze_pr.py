@@ -36,8 +36,13 @@ truncated_diff = pr_diff[:MAX_CHARS]
 if len(pr_diff) > MAX_CHARS:
     truncated_diff += "\n\n... [Diff truncado por longitud excesiva] ..."
 
-# Inicializar cliente de Gemini
-client = genai.Client(api_key=GEMINI_API_KEY)
+# Inicializar cliente de Gemini.
+# api_version explícita: desde google-genai 3.0 el SDK usa "v1" por defecto, y en v1 la API de
+# Gemini rechaza system_instruction ("Developer instruction is not enabled for api version v1").
+client = genai.Client(
+    api_key=GEMINI_API_KEY,
+    http_options=types.HttpOptions(api_version="v1beta"),
+)
 
 system_instruction = (
     "Eres un arquitecto de software y revisor de código senior. Tu tarea es analizar "

@@ -30,7 +30,7 @@ jobs:
 
       - name: Instalar dependencias
         run: |
-          pip install google-genai requests
+          pip install -r .github/scripts/requirements.txt
 
       - name: Ejecutar análisis del PR
         env:

@@ -1,4 +1,4 @@
 # Versiones fijas: una versión nueva del SDK no debe romper la revisión de PRs sin aviso.
 # (google-genai 3.0 cambió la versión de API por defecto y rompió este script.)
 google-genai==2.34.0
-requests==2.32.5
+requests==2.34.2

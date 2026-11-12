@@ -44,10 +44,26 @@ class AuthApiTest {
         assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
         Map<String, Object> json = lambda.json(res);
         assertEquals(Map.of("access_token", json.get("access_token"), "token_type", "Bearer",
-                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of("USUARIO")), json);
+                "expires_in", 3600, "username", "demo@sheets.tt", "roles", List.of("EXPERTO_CAMPO")), json);
         String token = (String) json.get("access_token");
         assertNotNull(token);
         assertEquals(3, token.split("\\.").length, "debe ser un JWT");
+    }
+
+    @Test
+    void loginAdminReturnsAdministradorRole() {
+        APIGatewayV2HTTPResponse res = lambda.post("/auth/login",
+                "{\"username\":\"admin@sheets.tt\",\"password\":\"Demo1234!\"}");
+        assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
+        assertEquals(List.of("ADMINISTRADOR"), lambda.json(res).get("roles"));
+    }
+
+    @Test
+    void loginDeactivatedAccountIs401() {
+        // estado_cuenta = 'desactivada' en la BD de TT_BKN.
+        APIGatewayV2HTTPResponse res = lambda.post("/auth/login",
+                "{\"username\":\"baja@sheets.tt\",\"password\":\"Demo1234!\"}");
+        assertEquals(401, res.getStatusCode());
     }
 
     @Test
@@ -77,6 +93,40 @@ class AuthApiTest {
     void loginBlankFieldsIs400() {
         assertEquals(400, lambda.post("/auth/login", "{\"username\":\"\",\"password\":\"\"}").getStatusCode());
         assertEquals(400, lambda.post("/auth/login", "{\"username\":\"demo@sheets.tt\"}").getStatusCode());
+    }
+
+    @Test
+    void loginMalformedJsonIs400NotAServerError() {
+        for (String cuerpo : List.of("{\"username\":", "no-es-json", "[]", "{\"username\": 5, \"password\": {}}")) {
+            APIGatewayV2HTTPResponse res = lambda.post("/auth/login", cuerpo);
+            assertEquals(400, res.getStatusCode(), cuerpo + " → " + LambdaTestSupport.body(res));
+            String body = String.valueOf(LambdaTestSupport.body(res));
+            assertFalse(body.contains("Exception") || body.contains("at tt.sheets"), "no debe filtrar detalles internos: " + body);
+        }
+    }
+
+    @Test
+    void loginRejectsOversizedFields() {
+        // 254 caracteres es el máximo de una dirección de correo (RFC 5321); 256 para la contraseña.
+        String correoLargo = "a".repeat(255 - "@sheets.tt".length()) + "@sheets.tt";
+        assertEquals(255, correoLargo.length());
+        assertEquals(400, lambda.post("/auth/login", login(correoLargo, "Demo1234!")).getStatusCode());
+        assertEquals(400, lambda.post("/auth/login", login("demo@sheets.tt", "x".repeat(257))).getStatusCode());
+    }
+
+    @Test
+    void loginAcceptsFieldsUpToTheLimit() {
+        // En el límite se valida normalmente: credenciales incorrectas → 401, no 400.
+        String correo254 = "a".repeat(254 - "@sheets.tt".length()) + "@sheets.tt";
+        assertEquals(401, lambda.post("/auth/login", login(correo254, "Demo1234!")).getStatusCode());
+        assertEquals(401, lambda.post("/auth/login", login("demo@sheets.tt", "x".repeat(256))).getStatusCode());
+        // Una contraseña de más de 72 bytes (límite de BCrypt) no se rechaza: TT_BKN no la limita al
+        // registrar y su dueño debe poder entrar.
+        assertEquals(401, lambda.post("/auth/login", login("demo@sheets.tt", "ñ".repeat(60))).getStatusCode());
+    }
+
+    private static String login(String usuario, String contrasena) {
+        return "{\"username\":\"" + usuario + "\",\"password\":\"" + contrasena + "\"}";
     }
 
     @Test

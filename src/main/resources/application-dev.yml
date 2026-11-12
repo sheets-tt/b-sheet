@@ -11,6 +11,7 @@ micronaut:
 flyway:
   datasources:
     default:
+      enabled: true
       locations:
         - classpath:db/migration
         - classpath:db/demo

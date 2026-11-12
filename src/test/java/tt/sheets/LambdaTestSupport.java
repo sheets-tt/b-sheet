@@ -8,13 +8,16 @@ import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPEvent;
 import com.amazonaws.services.lambda.runtime.events.APIGatewayV2HTTPResponse;
 import io.micronaut.context.ApplicationContext;
 import io.micronaut.context.ApplicationContextBuilder;
+import io.micronaut.core.type.Argument;
 import io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction;
 import io.micronaut.json.JsonMapper;
 
 import java.io.IOException;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -44,16 +47,30 @@ final class LambdaTestSupport implements AutoCloseable {
         this(Map.of());
     }
 
-    APIGatewayV2HTTPResponse request(String method, String path, String body, Map<String, String> headers) {
+    APIGatewayV2HTTPResponse request(String method, String pathAndQuery, String body, Map<String, String> headers) {
         Map<String, String> h = new HashMap<>(headers);
         if (body != null) {
             h.putIfAbsent("content-type", "application/json");
+        }
+        // "/analisis?tipo=follaje" -> rawPath + rawQueryString + queryStringParameters, como API Gateway.
+        int q = pathAndQuery.indexOf('?');
+        String path = q < 0 ? pathAndQuery : pathAndQuery.substring(0, q);
+        String query = q < 0 ? "" : pathAndQuery.substring(q + 1);
+        Map<String, String> params = new HashMap<>();
+        for (String pair : query.split("&")) {
+            if (!pair.isEmpty()) {
+                int eq = pair.indexOf('=');
+                // Como API Gateway (HTTP API v2): los parámetros repetidos se unen con comas.
+                params.merge(decode(eq < 0 ? pair : pair.substring(0, eq)), eq < 0 ? "" : decode(pair.substring(eq + 1)),
+                        (a, b) -> a + "," + b);
+            }
         }
         APIGatewayV2HTTPEvent event = APIGatewayV2HTTPEvent.builder()
                 .withVersion("2.0")
                 .withRouteKey("ANY /{proxy+}")
                 .withRawPath(path)
-                .withRawQueryString("")
+                .withRawQueryString(query)
+                .withQueryStringParameters(params.isEmpty() ? null : params)
                 .withHeaders(h)
                 .withBody(body)
                 .withIsBase64Encoded(false)
@@ -72,12 +89,26 @@ final class LambdaTestSupport implements AutoCloseable {
         return handler.handleRequest(event, new StubContext());
     }
 
+    private static String decode(String s) {
+        return URLDecoder.decode(s, StandardCharsets.UTF_8);
+    }
+
     APIGatewayV2HTTPResponse get(String path, Map<String, String> headers) {
         return request("GET", path, null, headers);
     }
 
     APIGatewayV2HTTPResponse post(String path, String body) {
         return request("POST", path, body, Map.of());
+    }
+
+    /** Cabecera Authorization con el JWT de una cuenta de db/demo (contraseña Demo1234!). */
+    Map<String, String> bearer(String correo) {
+        APIGatewayV2HTTPResponse res = post("/auth/login",
+                "{\"username\":\"" + correo + "\",\"password\":\"Demo1234!\"}");
+        if (res.getStatusCode() != 200) {
+            throw new IllegalStateException("login de " + correo + " falló: " + body(res));
+        }
+        return Map.of("authorization", "Bearer " + json(res).get("access_token"));
     }
 
     static String body(APIGatewayV2HTTPResponse response) {
@@ -94,6 +125,15 @@ final class LambdaTestSupport implements AutoCloseable {
             return context.getBean(JsonMapper.class).readValue(body(response), Map.class);
         } catch (IOException e) {
             throw new IllegalStateException("Respuesta no es JSON: " + body(response), e);
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    List<Map<String, Object>> jsonList(APIGatewayV2HTTPResponse response) {
+        try {
+            return (List) context.getBean(JsonMapper.class).readValue(body(response), Argument.listOf(Map.class));
+        } catch (IOException e) {
+            throw new IllegalStateException("Respuesta no es un arreglo JSON: " + body(response), e);
         }
     }
 

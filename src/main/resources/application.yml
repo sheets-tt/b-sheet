@@ -67,8 +67,17 @@ datasources:
 flyway:
   datasources:
     default:
-      enabled: ${FLYWAY_ENABLED:true}
+      # Producción usa la BD de TT_BKN (RDS) con un usuario de solo lectura: no se migra.
+      # application-dev.yml y application-test.yml lo encienden para construir la réplica local.
+      enabled: ${FLYWAY_ENABLED:false}
       locations: classpath:db/migration
+
+# Fotos de evidencia (bucket privado de TT_BKN): se sirven con URLs firmadas de corta duración.
+evidencias:
+  bucket: ${EVIDENCIAS_BUCKET:descortezadores-archivos-prod}
+  prefijo: evidencias/
+  region: ${EVIDENCIAS_REGION:us-east-1}
+  vigencia: 5m
 
 # micronaut-management llega transitivamente; su /health chocaría con HealthController.
 endpoints:

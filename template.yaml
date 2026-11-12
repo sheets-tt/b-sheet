@@ -20,14 +20,13 @@ Parameters:
     Description: JDBC URL del Postgres externo. Usar SSL, p.ej. jdbc:postgresql://db.example.com:5432/sheets?sslmode=require
   DbUser:
     Type: String
-  DbPassword:
+  SecretosId:
     Type: String
-    NoEcho: true
-  JwtSecret:
-    Type: String
-    NoEcho: true
-    MinLength: 32
-    Description: Secreto HS256 (>= 32 caracteres).
+    Default: sheets-tt/b-sheet
+    Description: >
+      NOMBRE (no ARN) del secreto de Secrets Manager con {"DB_PASSWORD": "...", "JWT_SECRET": ">= 32 caracteres"}.
+      La contraseña y el secreto del JWT ya no viajan como parámetros ni variables de la Lambda
+      (se leían con lambda:GetFunctionConfiguration); la función los lee al arrancar.
   CorsAllowedOrigins:
     Type: String
     Default: ''
@@ -41,8 +40,15 @@ Parameters:
       Usar "/api" solo si CloudFront reenvía /api/* sin esa función.
   FlywayEnabled:
     Type: String
-    Default: 'true'
+    # La BD es de TT_BKN y b-sheet entra con un usuario de solo lectura: no migra producción.
+    Default: 'false'
     AllowedValues: ['true', 'false']
+  EvidenciasBucket:
+    Type: String
+    Default: descortezadores-archivos-prod
+    Description: >
+      Bucket privado de TT_BKN con las fotos. La Lambda solo puede leer {bucket}/evidencias/* y
+      entrega URLs firmadas de 5 minutos (GET /analisis/{id}/evidencia).
   SubnetIds:
     Type: CommaDelimitedList
     Default: ''
@@ -87,12 +93,24 @@ Resources:
         Variables:
           DB_URL: !Ref DbUrl
           DB_USER: !Ref DbUser
-          DB_PASSWORD: !Ref DbPassword
-          JWT_SECRET: !Ref JwtSecret
+          SECRETOS_ID: !Ref SecretosId
           CORS_ALLOWED_ORIGINS: !If [HasCorsOrigins, !Ref CorsAllowedOrigins, 'http://localhost:5173']
           CONTEXT_PATH: !Ref ContextPath
           FLYWAY_ENABLED: !Ref FlywayEnabled
+          EVIDENCIAS_BUCKET: !Ref EvidenciasBucket
+          EVIDENCIAS_REGION: !Ref AWS::Region
           JAVA_TOOL_OPTIONS: -XX:+TieredCompilation -XX:TieredStopAtLevel=1
+      # Mínimo privilegio: solo leer fotos (las URLs firmadas usan este permiso), nada del resto del bucket.
+      Policies:
+        # Solo leer SU secreto (el ARN de un secreto por nombre termina en -XXXXXX).
+        - Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretosId}-??????
+        - Statement:
+            - Effect: Allow
+              Action: s3:GetObject
+              Resource: !Sub arn:aws:s3:::${EvidenciasBucket}/evidencias/*
       Events:
         Proxy:
           Type: HttpApi

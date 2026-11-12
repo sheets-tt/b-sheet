@@ -19,6 +19,7 @@ class CuentaUserAccountRepository implements UserAccountRepository {
 
     @Override
     public Optional<UserAccount> findByUsername(String username) {
-        return Optional.empty(); // TODO(green)
+        return cuentas.findByCorreoIgnoreCase(username)
+                .map(c -> new UserAccount(c.correo(), c.contrasenaHash(), c.activa()));
     }
 }

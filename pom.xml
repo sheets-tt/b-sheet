@@ -89,6 +89,41 @@
       <groupId>jakarta.validation</groupId>
       <artifactId>jakarta.validation-api</artifactId>
     </dependency>
+    <!-- Solo el presigner de S3 (firma local SigV4) para las fotos de evidencia: sin clientes HTTP. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>s3</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>apache-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <!-- Secretos (DB_PASSWORD, JWT_SECRET) leídos al arrancar desde Secrets Manager: fuera de las variables
+         de la Lambda. Cliente HTTP mínimo (url-connection), solo se usa una vez en el init. -->
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>secretsmanager</artifactId>
+      <exclusions>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>apache-client</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>software.amazon.awssdk</groupId>
+          <artifactId>netty-nio-client</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+    <dependency>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>url-connection-client</artifactId>
+    </dependency>
     <dependency>
       <groupId>org.mindrot</groupId>
       <artifactId>jbcrypt</artifactId>
@@ -125,6 +160,11 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter-params</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -235,6 +275,11 @@
           <environmentVariables>
             <DB_USER>${db.user}</DB_USER>
           </environmentVariables>
+          <!-- Credenciales ficticias: la firma de S3 se calcula sin red y los tests nunca usan un perfil real. -->
+          <systemPropertyVariables>
+            <aws.accessKeyId>AKIATESTONLY</aws.accessKeyId>
+            <aws.secretAccessKey>test-only-secret</aws.secretAccessKey>
+          </systemPropertyVariables>
         </configuration>
       </plugin>
 

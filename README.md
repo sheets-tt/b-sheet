@@ -1,71 +1,115 @@
-# b-sheet — backend de login (sheets-tt)
+# b-sheet — backend web de sheets-tt (solo lectura)
 
-Backend de autenticación de **sheets-tt**: Micronaut 4 + PostgreSQL, empaquetado para
+Backend de **sheets-tt** para la web: Micronaut + PostgreSQL, empaquetado para
 **AWS Lambda (runtime administrado `java25`, arm64) con SnapStart**, detrás de **API Gateway HTTP API
-(payload v2)**. La base de datos vive **fuera de AWS**.
+(payload v2)**. Lee la base de datos de **TT_BKN** (RDS `descortezadores-db`, donde escribe la app
+móvil) con un **usuario de solo lectura**: b-sheet no inserta, modifica ni migra producción.
 
-Implementa el contrato `API_CONTRACT.md` (v1): `GET /health`, `POST /auth/login`, `GET /me`.
+Endpoints: `GET /health`, `POST /auth/login`, `GET /me` (contrato `API_CONTRACT.md` v1) y los módulos
+de consulta, todos `GET` y con JWT (ver [Módulos de consulta](#módulos-de-consulta)).
 
 ## Arquitectura
 
 ```
 Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTTP API ($default, payload 2.0)
-Móvil (Flutter) ─────────────────────────────────►        │  ANY /{proxy+}
+                                                          │  ANY /{proxy+}
                                                           ▼
                                     Lambda java25 arm64 + SnapStart (alias "live")
                                     handler: io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction
-                                                          │  JDBC + SSL (Hikari, pool máx. 2)
+                                                          │  JDBC + SSL (Hikari, pool máx. 2), usuario de solo lectura
                                                           ▼
-                                          PostgreSQL externo (fuera de AWS)
+                                    RDS PostgreSQL descortezadores-db (esquema de TT_BKN)
 ```
 
 | Pieza | Detalle |
 |---|---|
-| Framework | Micronaut 4.10.20 (`micronaut-parent`, `micronaut.runtime=lambda`) |
-| Build | Maven 3.9.11 (wrapper `./mvnw`), Java 25, jar "fat" con `maven-shade-plugin` |
-| Persistencia | Micronaut Data JDBC + HikariCP + Flyway (`src/main/resources/db/migration`) |
+| Framework | Micronaut 5 (`micronaut-parent`, `micronaut.runtime=lambda`) |
+| Build | Maven (wrapper `./mvnw`), Java 25, jar "fat" con `maven-shade-plugin` |
+| Persistencia | Micronaut Data JDBC (`GenericRepository`, sin escrituras) + HikariCP. Flyway solo en dev y tests |
 | Seguridad | Micronaut Security JWT, HS256 (`JWT_SECRET`), contraseñas bcrypt (jBCrypt) |
 | SnapStart | `micronaut-crac`: suspende el pool Hikari antes del snapshot y lo refresca al restaurar |
+
+### Capas (TDD)
+
+Cada módulo sigue la misma estructura, y cada capa tiene su test:
+
+| Capa | Ejemplo (`tt.sheets.arbol`) | Test |
+|---|---|---|
+| `domain` — modelo y puertos, sin Micronaut | `Arbol`, `ArbolRepository` | — |
+| `application` — casos de uso, sin Micronaut | `ConsultarArboles` | `ConsultarArbolesTest` (dobles en memoria) |
+| `infrastructure` — adaptadores y cableado | `JdbcArbolRepository`, `ArbolEntity`, `ArbolBeans` (`@Factory`) | `JdbcArbolRepositoryTest` (BD de tests) |
+| Controlador + DTO | `ArbolController`, `ArbolResponse` | `ArbolesApiTest` (handler Lambda real) |
+
+Adaptadores: las tablas simples usan repositorios de Micronaut Data (`GenericRepository`, sin escrituras);
+los filtros opcionales, JOINs y agregados usan SQL con `JdbcOperations`, siempre con parámetros enlazados
+y nombrando columnas (así `contrasena_hash` y `token_dispositivo` nunca salen de la BD).
+
+## Módulos de consulta
+
+Todos requieren `Authorization: Bearer <jwt>` (401 sin token). Fechas en ISO-8601 UTC; las claves nulas
+se envían como `null`; un id que no es UUID da 400 y uno que no existe, 404.
+
+| Endpoint | Rol | Respuesta |
+|---|---|---|
+| `GET /arboles`, `GET /arboles/{id}` | cualquiera | `{id, nombreEspecifico, especie, latitud, longitud, fechaRegistro, descripcion, ultimoAnalisis}`, del más reciente al más antiguo. `ultimoAnalisis` = `{id, resultado, fechaCaptura}` o `null` |
+| `GET /zonas`, `GET /zonas/{id}` | cualquiera | `{id, nombreZona, latitudCentro, longitudCentro, radioMetros, fechaRegistro, descripcion, ultimoAnalisis}` |
+| `GET /analisis`, `GET /analisis/{id}` | cualquiera | `{id, tieneEvidencia, latitudCaptura, longitudCaptura, fechaCaptura, fechaSincronizacion, estadoSincronizacion, tipoImagen, resultadoClasificacion, confianza, observaciones, idArbol, idZona, cromatico}`; `cromatico` = `{pctSano, pctRegular, pctDanado, pctIncierto}` o `null` |
+| `GET /analisis/{id}/evidencia` | cualquiera | `{url, expira}`: URL de S3 firmada por 5 min (`Cache-Control: no-store`); 404 si no tiene foto |
+| `GET /estadisticas` | cualquiera | `totales` (árboles, zonas, análisis, dispositivos, árboles y zonas con algún análisis `infestado`), conteos por resultado, tipo y sincronización (todas las categorías, 0 si no hay, en orden fijo), `cromaticoPromedio` (2 decimales) y `ultimaCaptura` |
+| `GET /cuentas` | `ADMINISTRADOR` (403 si no) | `{id, correo, nombreCompleto, rol, activa, fechaCreacion}`, por correo. Sin hash |
+| `GET /dispositivos` | `ADMINISTRADOR` (403 si no) | `{id, identificadorUnico, nombreDispositivo, estado, fechaRegistro, cuentaVigente}`. Sin token |
+
+Fotos de evidencia: el bucket de TT_BKN (`descortezadores-archivos-prod`) es privado y también guarda
+despliegues. `ClaveEvidencia` solo acepta claves de ese bucket bajo `evidencias/` (URL completa de S3 o
+clave relativa, sin `.`/`..`); `sin_imagen` o cualquier otra ruta dan 404. La URL se firma localmente
+(SigV4, `S3Presigner`, sin clientes HTTP) con el rol de la Lambda, que en `template.yaml` solo tiene
+`s3:GetObject` sobre `{bucket}/evidencias/*`. Variables: `EVIDENCIAS_BUCKET`, `EVIDENCIAS_REGION`.
+La ruta interna (`ruta_evidencia`) no se expone: la web solo recibe `tieneEvidencia`.
+
+Filtros de `GET /analisis` (todos opcionales y combinables): `tipo` (`corteza`/`follaje`), `resultado`
+(`sano`/`infestado`/`no_determinado`), `estado` (`pendiente`/`sincronizado`/`error`), `desde` y `hasta`
+(instantes ISO-8601, inclusivos sobre `fechaCaptura`), `arbol` y `zona` (UUID), `limite` (1–500, 100 por
+defecto). Orden: captura más reciente primero. Un valor inválido o `desde` > `hasta` da 400 con
+`{"message": "..."}`. Ejemplo: `GET /analisis?tipo=follaje&resultado=infestado&desde=2026-10-01T00:00:00Z`.
 
 Código:
 
 - `tt.sheets.HealthController` — `GET /health` → `{"status":"UP"}` (no toca la BD).
 - `tt.sheets.auth.AuthController` — `POST /auth/login`: busca la cuenta por correo
-  (case-insensitive, solo `estado_cuenta = 'ACTIVA'`), valida bcrypt (tiempo constante aunque la
-  cuenta no exista) y emite el JWT con el `rol` de la cuenta en `roles`.
+  (case-insensitive, solo `estado_cuenta = 'Activa'`), valida bcrypt (tiempo constante aunque la
+  cuenta no exista) y emite el JWT con el rol en `roles`: `ADMINISTRADOR` o `EXPERTO_CAMPO`
+  (en la BD: `Administrador` / `Experto de campo`, ver `tt.sheets.cuenta.Rol`).
   200 con `access_token`, `token_type`, `expires_in`, `username`, `roles`; 401 `{"message": "..."}`;
   400 si faltan campos o están vacíos.
 - `tt.sheets.auth.MeController` — `GET /me` (Bearer) → `{"username": correo, "displayName":
   nombre_completo}`; 401 sin token, con token inválido o expirado, o si la cuenta ya no está activa.
-- `tt.sheets.cuenta` — entidad `Cuenta` (tabla `cuenta`) y repositorio.
-- Migraciones (ver [Base de datos](#base-de-datos-flyway)): `db/migration/V1__esquema_inicial.sql`
-  (esquema completo del ER) y, **solo en desarrollo y tests**, `db/demo/V2__cuenta_demo.sql`
-  (cuenta demo `demo@sheets.tt` / `Demo1234!`, "Usuario Demo").
+- `tt.sheets.cuenta` — entidad `Cuenta` (tabla `cuenta`), `Rol` y repositorio.
 
-## Base de datos (Flyway)
+## Base de datos
 
-El esquema vive en `src/main/resources/db/migration` y lo aplica **Flyway**. `V1__esquema_inicial.sql`
-crea las tablas del diagrama ER "Sistema móvil y web":
+La base de producción es de **TT_BKN** (`../TT_BKN/docker/postgres/init-schema.sql`). b-sheet guarda una
+**réplica** de ese esquema en `db/migration/V1__esquema_ecoverde.sql` para construir la base local y la
+de tests; **Flyway está apagado por defecto** (`FLYWAY_ENABLED=false`) y solo se enciende en
+`application-dev.yml` y `application-test.yml`. Si TT_BKN cambia su esquema, se refleja aquí con una
+migración nueva.
 
-| Tabla | Relaciones |
+| Tabla | Detalle |
 |---|---|
-| `cuenta` | Login: `correo` único sin distinguir mayúsculas, `contrasena_hash` (bcrypt), `rol` (`ADMIN`/`USUARIO`), `estado_cuenta` (`ACTIVA`/`INACTIVA`/`BLOQUEADA`) |
-| `dispositivo` | `identificador_unico` único, `estado_dispositivo` (`ACTIVO`/`INACTIVO`/`REVOCADO`) |
-| `cuenta_dispositivo` | → `cuenta`, → `dispositivo`. Historial de asociaciones; solo una vigente (`fecha_desasociacion IS NULL`) por pareja |
-| `arbol` | → `cuenta`, → `dispositivo`. Coordenadas `NUMERIC(9,6)` con rango validado |
-| `zona_follaje` | → `cuenta`, → `dispositivo`. Centro + `radio_metros > 0` |
-| `analisis` | → `zona_follaje` (obligatoria), → `arbol` (**opcional**). `estado_sincronizacion` (`PENDIENTE`/`SINCRONIZADO`/`ERROR`), `confianza` 0–1 |
-| `analisis_cromatico` | → `analisis`. `pct_sano`, `pct_regular`, `pct_danado`, `pct_incierto` (0–100) |
-
-Hay dos carpetas de migraciones:
+| `cuenta` | Id `UUID`, `correo` único, `contrasena_hash` (bcrypt), `rol` (`Administrador`/`Experto de campo`), `estado_cuenta` (`Activa`/`desactivada`) |
+| `dispositivo` | `identificador_unico` único, `estado_dispositivo` (`Activo`/`inactivo`/`bloqueado`) |
+| `cuenta_dispositivo` | → `cuenta`, → `dispositivo`. `estado_cuenta_dispositivo` (`Activa`/`desasociada`) |
+| `arbol` | → `cuenta`, → `dispositivo` (opcional). Coordenadas `DOUBLE PRECISION` |
+| `zona_follaje` | → `cuenta`, → `dispositivo` (opcional). Centro + `radio_metros` |
+| `analisis` | `tipo_imagen` `corteza` → `arbol` o `follaje` → `zona_follaje` (exactamente uno). `resultado_clasificacion` (`sano`/`infestado`/`no_determinado`), `estado_sincronizacion` (`pendiente`/`sincronizado`/`error`) |
+| `analisis_cromatico` | → `analisis`. `pct_sano`, `pct_regular`, `pct_danado`, `pct_incierto` |
 
 | Carpeta | Contenido | Dónde se aplica |
 |---|---|---|
-| `db/migration` | Esquema (`V1`, `V3`, …) | Siempre: producción (Neon), desarrollo y tests |
-| `db/demo` | Datos de prueba: cuenta demo (`V2`) | Solo desarrollo (`application-dev.yml`) y tests (`application-test.yml`) |
+| `db/migration` | Réplica del esquema de TT_BKN (`V1`, `V3`, …) | Solo desarrollo y tests (nunca producción) |
+| `db/demo` | Datos de prueba (`V2`): cuentas `demo@sheets.tt` (Experto de campo), `admin@sheets.tt` (Administrador) y `baja@sheets.tt` (desactivada), todas con `Demo1234!`; un dispositivo, dos árboles, dos zonas, cinco análisis (`e1`–`e5`) y dos cromáticos | Solo desarrollo y tests |
 
-`ProductionMigrationsTest` falla si alguna migración de `db/migration` inserta cuentas, porque esas
-llegan a producción.
+`ProductionMigrationsTest` falla si alguna migración de `db/migration` inserta cuentas, y
+`ProductionConfigTest` falla si Flyway queda encendido sin los entornos `dev` o `test`.
 
 Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_schema_history`
 (Flyway 12.11.0 en ambos casos):
@@ -87,7 +131,7 @@ Las migraciones se aplican de dos formas, y las dos usan la misma tabla `flyway_
    así que la cuenta demo no puede llegar a producción por error.
    Para usar la base local con el backend: `DB_URL=jdbc:postgresql://localhost:5434/sheets
    DB_USER=sheets DB_PASSWORD=sheets ./mvnw mn:run -Pdev`.
-2. **Al arrancar el backend** (`FLYWAY_ENABLED=true`, el default): Micronaut aplica lo que falte.
+2. **Al arrancar el backend en dev o tests** (Flyway encendido en esos entornos): Micronaut aplica lo que falte.
    Si la base ya está al día (por ejemplo, migrada con Docker), no hace nada.
 
 Para comprobar que Neon tiene todas las migraciones de `db/migration` (se salta sin credenciales):
@@ -117,11 +161,12 @@ cambia. El número `V2` ya lo usa `db/demo`: no lo repitas en `db/migration`.
 |---|---|---|---|
 | `DB_URL` | sí (prod) | `jdbc:postgresql://localhost:5432/sheets` | JDBC URL. En producción usar SSL: `?sslmode=require` o `?sslmode=verify-full&sslrootcert=...` |
 | `DB_USER` | sí (prod) | `postgres` (en `run` y tests: tu usuario del SO) | Usuario de la BD |
-| `DB_PASSWORD` | sí (prod) | vacío | Contraseña de la BD |
-| `JWT_SECRET` | **sí** | solo hay default en entorno `dev` y `test` | Secreto HS256, **≥ 32 caracteres**. Sin él, la app no arranca (fail-fast) |
+| `SECRETOS_ID` | **sí (AWS)** | vacío | Nombre del secreto de Secrets Manager con `{"DB_PASSWORD", "JWT_SECRET"}`. Lo lee `LambdaHandler` al arrancar; solo acepta esas dos claves. En AWS **no** se usan `DB_PASSWORD` ni `JWT_SECRET` como variables (se leían con `lambda:GetFunctionConfiguration`) |
+| `DB_PASSWORD` | solo local | vacío | Contraseña de la BD (en AWS sale del secreto) |
+| `JWT_SECRET` | **sí** (local; en AWS sale del secreto) | solo hay default en entorno `dev` y `test` | Secreto HS256, **≥ 32 caracteres**. Sin él, la app no arranca (fail-fast) |
 | `CORS_ALLOWED_ORIGINS` | no | `http://localhost:5173` | Orígenes permitidos, separados por comas |
 | `CONTEXT_PATH` | no | vacío | Prefijo de rutas. Vacío en el despliegue estándar (ver «Rutas `/api`»); `/api` solo sin la CloudFront Function |
-| `FLYWAY_ENABLED` | no | `true` | Ejecutar migraciones al arrancar |
+| `FLYWAY_ENABLED` | no | `false` (`true` en dev y tests) | Ejecutar migraciones al arrancar. **No** encender en producción: la BD es de TT_BKN |
 | `PORT` | no | `8080` | Puerto local (solo `./mvnw mn:run -Pdev`) |
 | `LOG_LEVEL` | no | `INFO` | Nivel de log raíz |
 | `DB_TEST_URL` | no | `jdbc:postgresql://localhost:5432/sheets_test` | BD que usan los tests |
@@ -172,6 +217,21 @@ Los tests (JUnit 5) **invocan el handler real de Lambda** (`APIGatewayV2HTTPEven
 con eventos `APIGatewayV2HTTPEvent` (payload 2.0), con el mismo builder de contexto que usa
 AWS, contra la BD `sheets_test`. Cubren health, login OK (payload exacto del contrato), login
 case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONTEXT_PATH=/api`.
+
+**Entradas que se rechazan** (las pruebas lo fijan):
+
+| Entrada | Respuesta | Prueba |
+|---|---|---|
+| JSON mal formado o de otro tipo en el login | 400, sin detalles internos | `AuthApiTest` |
+| Correo de más de 254 caracteres o contraseña de más de 256 | 400 | `AuthApiTest` |
+| Token vencido, firmado con otra clave, `alg: none`, con el rol cambiado, o basura | 401 | `TokenManipuladoApiTest` |
+| Filtros con valores inválidos, rango de fechas invertido, `limite` fuera de 1–500 o no numérico | 400 | `AnalisisApiTest` |
+| Intentos de inyección SQL en filtros e identificadores | 400, sin tocar datos | `AnalisisApiTest` |
+| Parámetro repetido (`?tipo=corteza&tipo=follaje`) | 400 (`ParametrosRepetidosFilter`, en todos los endpoints) | `AnalisisApiTest` |
+
+Se aceptan a propósito: parámetros desconocidos (se ignoran), parámetros vacíos (cuentan como no
+enviados) y contraseñas de más de 72 bytes (BCrypt solo usa los primeros 72, pero TT_BKN no limita
+el largo al registrar y su dueño tiene que poder entrar).
 
 ## Empaquetado para Lambda
 

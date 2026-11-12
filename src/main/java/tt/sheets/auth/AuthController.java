@@ -48,7 +48,7 @@ public class AuthController {
             return HttpResponse.unauthorized().body(new ErrorResponse("Credenciales inválidas"));
         }
         String username = cuenta.get().correo();
-        List<String> roles = List.of(cuenta.get().rol());
+        List<String> roles = List.of(cuenta.get().rolCuenta().name());
         return tokens.generate(Authentication.build(username, roles))
                 .<HttpResponse<?>>map(t -> HttpResponse.ok(new LoginResponse(
                         t.getAccessToken(), "Bearer", t.getExpiresIn(), username, roles)))

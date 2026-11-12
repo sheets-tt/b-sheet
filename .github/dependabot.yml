@@ -54,3 +54,17 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # Dependencias de Python del script de revisión de PRs (.github/scripts/requirements.txt).
+  # Sin esta entrada Dependabot no las revisa y OSV-Scanner solo puede avisar.
+  - package-ecosystem: pip
+    directory: /.github/scripts
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Mexico_City
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: [dependencies, python]

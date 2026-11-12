@@ -218,6 +218,21 @@ con eventos `APIGatewayV2HTTPEvent` (payload 2.0), con el mismo builder de conte
 AWS, contra la BD `sheets_test`. Cubren health, login OK (payload exacto del contrato), login
 case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONTEXT_PATH=/api`.
 
+**Entradas que se rechazan** (las pruebas lo fijan):
+
+| Entrada | Respuesta | Prueba |
+|---|---|---|
+| JSON mal formado o de otro tipo en el login | 400, sin detalles internos | `AuthApiTest` |
+| Correo de más de 254 caracteres o contraseña de más de 256 | 400 | `AuthApiTest` |
+| Token vencido, firmado con otra clave, `alg: none`, con el rol cambiado, o basura | 401 | `TokenManipuladoApiTest` |
+| Filtros con valores inválidos, rango de fechas invertido, `limite` fuera de 1–500 o no numérico | 400 | `AnalisisApiTest` |
+| Intentos de inyección SQL en filtros e identificadores | 400, sin tocar datos | `AnalisisApiTest` |
+| Parámetro repetido (`?tipo=corteza&tipo=follaje`) | 400 (`ParametrosRepetidosFilter`, en todos los endpoints) | `AnalisisApiTest` |
+
+Se aceptan a propósito: parámetros desconocidos (se ignoran), parámetros vacíos (cuentan como no
+enviados) y contraseñas de más de 72 bytes (BCrypt solo usa los primeros 72, pero TT_BKN no limita
+el largo al registrar y su dueño tiene que poder entrar).
+
 ## Empaquetado para Lambda
 
 ```bash

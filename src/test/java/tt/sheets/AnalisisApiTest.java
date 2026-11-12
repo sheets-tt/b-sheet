@@ -113,6 +113,46 @@ class AnalisisApiTest {
     }
 
     @Test
+    void nonNumericOrNegativeLimitIs400() {
+        for (String limite : List.of("abc", "-1", "1.5", "9999999999")) {
+            APIGatewayV2HTTPResponse res = lambda.get("/analisis?limite=" + limite, auth);
+            assertEquals(400, res.getStatusCode(), "limite=" + limite + " → " + LambdaTestSupport.body(res));
+        }
+    }
+
+    @Test
+    void sqlInjectionAttemptsAreRejectedAndChangeNothing() {
+        for (String ataque : List.of(
+                "/analisis?tipo=corteza'%20OR%20'1'='1",
+                "/analisis?resultado=sano;%20DROP%20TABLE%20analisis;--",
+                "/analisis?arbol=b0000000-0000-0000-0000-000000000001'%20OR%201=1--",
+                "/analisis?desde=2026-10-01T00:00:00Z'%20OR%201=1--",
+                "/analisis/e0000000-0000-0000-0000-000000000001'%20OR%201=1--")) {
+            assertEquals(400, lambda.get(ataque, auth).getStatusCode(), ataque);
+        }
+        assertEquals(5, ids("/analisis").size(), "los datos siguen intactos");
+    }
+
+    @Test
+    void repeatedParameterIs400() {
+        // API Gateway (HTTP API v2) une los parámetros repetidos con comas: "tipo=corteza,follaje".
+        assertEquals(400, lambda.get("/analisis?tipo=corteza&tipo=follaje", auth).getStatusCode());
+        assertEquals(400, lambda.get("/analisis?limite=2&limite=3", auth).getStatusCode());
+    }
+
+    @Test
+    void unknownParametersAreIgnored() {
+        assertEquals(ids("/analisis?tipo=follaje"), ids("/analisis?tipo=follaje&orden=asc&foo=bar"));
+    }
+
+    @Test
+    void emptyParametersCountAsNotSent() {
+        // El frontend nunca manda vacíos; si llegan, valen como no enviados (límite por defecto: 100).
+        assertEquals(ids("/analisis"), ids("/analisis?limite="));
+        assertEquals(ids("/analisis"), ids("/analisis?tipo=&resultado=&estado="));
+    }
+
+    @Test
     void detailUnknownIdIs404AndInvalidIdIs400() {
         assertEquals(404, lambda.get("/analisis/e0000000-0000-0000-0000-0000000000ff", auth).getStatusCode());
         assertEquals(400, lambda.get("/analisis/no-es-uuid", auth).getStatusCode());

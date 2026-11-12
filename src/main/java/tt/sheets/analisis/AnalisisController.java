@@ -39,6 +39,11 @@ public class AnalisisController {
         this.evidencias = evidencias;
     }
 
+    /** Un filtro vacío (?tipo=) vale como no enviado, igual que ?limite= (que toma su valor por defecto). */
+    private static boolean vacio(@Nullable String valor) {
+        return valor == null || valor.isBlank();
+    }
+
     private AnalisisResponse respuesta(Analisis a) {
         return AnalisisResponse.from(a, evidencias.disponible(a));
     }
@@ -55,9 +60,9 @@ public class AnalisisController {
                                   @QueryValue(defaultValue = "100") int limite) {
         try {
             FiltroAnalisis filtro = new FiltroAnalisis(
-                    tipo == null ? null : TipoImagen.desde(tipo),
-                    resultado == null ? null : Resultado.desde(resultado),
-                    estado == null ? null : EstadoSincronizacion.desde(estado),
+                    vacio(tipo) ? null : TipoImagen.desde(tipo),
+                    vacio(resultado) ? null : Resultado.desde(resultado),
+                    vacio(estado) ? null : EstadoSincronizacion.desde(estado),
                     desde, hasta, arbol, zona, limite);
             return HttpResponse.ok(consultar.buscar(filtro).stream().map(this::respuesta).toList());
         } catch (IllegalArgumentException e) {

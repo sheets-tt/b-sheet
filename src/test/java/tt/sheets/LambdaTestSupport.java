@@ -60,7 +60,9 @@ final class LambdaTestSupport implements AutoCloseable {
         for (String pair : query.split("&")) {
             if (!pair.isEmpty()) {
                 int eq = pair.indexOf('=');
-                params.put(decode(eq < 0 ? pair : pair.substring(0, eq)), eq < 0 ? "" : decode(pair.substring(eq + 1)));
+                // Como API Gateway (HTTP API v2): los parámetros repetidos se unen con comas.
+                params.merge(decode(eq < 0 ? pair : pair.substring(0, eq)), eq < 0 ? "" : decode(pair.substring(eq + 1)),
+                        (a, b) -> a + "," + b);
             }
         }
         APIGatewayV2HTTPEvent event = APIGatewayV2HTTPEvent.builder()

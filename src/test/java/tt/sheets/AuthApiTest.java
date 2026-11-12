@@ -96,6 +96,40 @@ class AuthApiTest {
     }
 
     @Test
+    void loginMalformedJsonIs400NotAServerError() {
+        for (String cuerpo : List.of("{\"username\":", "no-es-json", "[]", "{\"username\": 5, \"password\": {}}")) {
+            APIGatewayV2HTTPResponse res = lambda.post("/auth/login", cuerpo);
+            assertEquals(400, res.getStatusCode(), cuerpo + " → " + LambdaTestSupport.body(res));
+            String body = String.valueOf(LambdaTestSupport.body(res));
+            assertFalse(body.contains("Exception") || body.contains("at tt.sheets"), "no debe filtrar detalles internos: " + body);
+        }
+    }
+
+    @Test
+    void loginRejectsOversizedFields() {
+        // 254 caracteres es el máximo de una dirección de correo (RFC 5321); 256 para la contraseña.
+        String correoLargo = "a".repeat(255 - "@sheets.tt".length()) + "@sheets.tt";
+        assertEquals(255, correoLargo.length());
+        assertEquals(400, lambda.post("/auth/login", login(correoLargo, "Demo1234!")).getStatusCode());
+        assertEquals(400, lambda.post("/auth/login", login("demo@sheets.tt", "x".repeat(257))).getStatusCode());
+    }
+
+    @Test
+    void loginAcceptsFieldsUpToTheLimit() {
+        // En el límite se valida normalmente: credenciales incorrectas → 401, no 400.
+        String correo254 = "a".repeat(254 - "@sheets.tt".length()) + "@sheets.tt";
+        assertEquals(401, lambda.post("/auth/login", login(correo254, "Demo1234!")).getStatusCode());
+        assertEquals(401, lambda.post("/auth/login", login("demo@sheets.tt", "x".repeat(256))).getStatusCode());
+        // Una contraseña de más de 72 bytes (límite de BCrypt) no se rechaza: TT_BKN no la limita al
+        // registrar y su dueño debe poder entrar.
+        assertEquals(401, lambda.post("/auth/login", login("demo@sheets.tt", "ñ".repeat(60))).getStatusCode());
+    }
+
+    private static String login(String usuario, String contrasena) {
+        return "{\"username\":\"" + usuario + "\",\"password\":\"" + contrasena + "\"}";
+    }
+
+    @Test
     void meWithTokenReturnsProfile() {
         String token = (String) lambda.json(lambda.post("/auth/login", DEMO_LOGIN)).get("access_token");
         APIGatewayV2HTTPResponse res = lambda.get("/me", Map.of("authorization", "Bearer " + token));

@@ -211,14 +211,19 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
       - name: sam deploy
         env:
+          # DB_PASSWORD y JWT_SECRET ya no pasan por aquí: la Lambda los lee del secreto
+          # sheets-tt/b-sheet de Secrets Manager (parámetro SecretosId del template).
           DB_URL: ${{ secrets.DB_URL }}
           DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          # Opcionales: subredes y grupo para que la Lambda entre a la VPC de la base (separados por coma).
+          SUBNET_IDS: ${{ vars.SUBNET_IDS }}
+          SECURITY_GROUP_IDS: ${{ vars.SECURITY_GROUP_IDS }}
           CORS_ALLOWED_ORIGINS: ${{ vars.CORS_ALLOWED_ORIGINS }}
           IMAGE_URI: ${{ needs.release.outputs.image }}
           STACK_NAME: ${{ vars.SAM_STACK_NAME || 'sheets-backend' }}
         run: |
+          VPC=()
+          if [ -n "$SUBNET_IDS" ]; then VPC=("SubnetIds=$SUBNET_IDS" "SecurityGroupIds=$SECURITY_GROUP_IDS"); fi
           sam deploy \
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_IAM \
@@ -226,5 +231,6 @@ jobs:
             --image-repository "${IMAGE_URI%@*}" \
             --parameter-overrides \
               "ImageUri=$IMAGE_URI" \
-              "DbUrl=$DB_URL" "DbUser=$DB_USER" "DbPassword=$DB_PASSWORD" "JwtSecret=$JWT_SECRET" \
-              "CorsAllowedOrigins=$CORS_ALLOWED_ORIGINS"
+              "DbUrl=$DB_URL" "DbUser=$DB_USER" \
+              "CorsAllowedOrigins=$CORS_ALLOWED_ORIGINS" \
+              "${VPC[@]}"

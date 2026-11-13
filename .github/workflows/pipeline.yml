@@ -236,6 +236,19 @@ jobs:
           for requerido in DbUrl DbUser; do
             printf '%s\n' "${PARAMS[@]}" | grep -q "^$requerido=" || { echo "::error::Falta el secreto de $requerido"; exit 1; }
           done
+          # Validar ANTES de sam: un valor malo crea el stack, falla y lo deja en ROLLBACK_COMPLETE
+          # (hay que borrarlo a mano para volver a desplegar).
+          case "$(limpio "$DB_URL")" in jdbc:postgresql://*) ;; *) echo "::error::El secreto DB_URL debe empezar con jdbc:postgresql://"; exit 1 ;; esac
+          SUBNETS=$(limpio "$SUBNET_IDS"); GRUPOS=$(limpio "$SECURITY_GROUP_IDS")
+          if [ -n "$SUBNETS$GRUPOS" ]; then
+            [[ "$SUBNETS" =~ ^subnet-[0-9a-f]+(,subnet-[0-9a-f]+)*$ ]] || { echo "::error::La variable SUBNET_IDS no es una lista de subnet-…: '$SUBNETS'"; exit 1; }
+            [[ "$GRUPOS" =~ ^sg-[0-9a-f]+(,sg-[0-9a-f]+)*$ ]] || { echo "::error::La variable SECURITY_GROUP_IDS no es una lista de sg-…: '$GRUPOS'"; exit 1; }
+          fi
+          ESTADO=$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].StackStatus' --output text 2>/dev/null || true)
+          if [ "$ESTADO" = "ROLLBACK_COMPLETE" ]; then
+            echo "::error::El stack $STACK_NAME quedó en ROLLBACK_COMPLETE por un intento anterior. Bórralo y vuelve a correr: aws cloudformation delete-stack --stack-name $STACK_NAME"
+            exit 1
+          fi
           sam deploy \
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_IAM \

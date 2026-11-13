@@ -13,13 +13,19 @@ import io.micronaut.security.token.generator.AccessRefreshTokenGenerator;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tt.sheets.auth.infrastructure.CuentaVigenteJwtAuthenticationFactory;
 import tt.sheets.cuenta.Cuenta;
 import tt.sheets.cuenta.CuentaRepository;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
-/** POST /auth/login — valida credenciales (bcrypt contra la tabla cuenta) y emite un JWT HS256 con el rol. */
+/**
+ * POST /auth/login — valida credenciales (bcrypt contra la tabla cuenta) y emite un JWT HS256 con el rol y el
+ * id de la cuenta (claim {@value CuentaVigenteJwtAuthenticationFactory#CLAIM_CUENTA}): el correo solo no basta para
+ * identificarla, porque puede cambiar y luego quedar en otra cuenta.
+ */
 @Controller("/auth")
 @Secured(SecurityRule.IS_ANONYMOUS)
 public class AuthController {
@@ -49,7 +55,8 @@ public class AuthController {
         }
         String username = cuenta.get().correo();
         List<String> roles = List.of(cuenta.get().rolCuenta().name());
-        return tokens.generate(Authentication.build(username, roles))
+        Map<String, Object> claims = Map.of(CuentaVigenteJwtAuthenticationFactory.CLAIM_CUENTA, cuenta.get().idCuenta().toString());
+        return tokens.generate(Authentication.build(username, roles, claims))
                 .<HttpResponse<?>>map(t -> HttpResponse.ok(new LoginResponse(
                         t.getAccessToken(), "Bearer", t.getExpiresIn(), username, roles)))
                 .orElseGet(() -> {

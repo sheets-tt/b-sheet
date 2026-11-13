@@ -1,12 +1,15 @@
-# b-sheet — backend web de sheets-tt (solo lectura)
+# b-sheet — backend web de sheets-tt
 
 Backend de **sheets-tt** para la web: Micronaut + PostgreSQL, empaquetado para
 **AWS Lambda (imagen de contenedor `java25`, arm64)**, detrás de **API Gateway HTTP API
 (payload v2)**. Lee la base de datos de **TT_BKN** (RDS `descortezadores-db`, donde escribe la app
-móvil) con un **usuario de solo lectura**: b-sheet no inserta, modifica ni migra producción.
+móvil). La única escritura es la **gestión de cuentas** por un administrador (tabla `cuenta`, columnas
+concretas: ver [Permisos en producción](#permisos-en-producción)); b-sheet no toca las demás tablas ni migra
+producción.
 
-Endpoints: `GET /health`, `POST /auth/login`, `GET /me` (contrato `API_CONTRACT.md` v1) y los módulos
-de consulta, todos `GET` y con JWT (ver [Módulos de consulta](#módulos-de-consulta)).
+Endpoints: `GET /health`, `POST /auth/login`, `GET /me` (contrato `API_CONTRACT.md` v1), los módulos
+de consulta, todos `GET` y con JWT (ver [Módulos de consulta](#módulos-de-consulta)), y la
+[gestión de cuentas](#gestión-de-cuentas) (`POST`/`PUT`/`PATCH /cuentas`, solo `ADMINISTRADOR`).
 
 ## Arquitectura
 
@@ -16,7 +19,8 @@ Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTT
                                                           ▼
                                     Lambda java25 arm64, imagen de contenedor (alias "live")
                                     handler: io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction
-                                                          │  JDBC + SSL (Hikari, pool máx. 2), usuario de solo lectura
+                                                          │  JDBC + SSL (Hikari, pool máx. 2), usuario sheets_lectura
+                                                          │  (SELECT + INSERT/UPDATE de columnas de cuenta)
                                                           ▼
                                     RDS PostgreSQL descortezadores-db (esquema de TT_BKN)
 ```
@@ -25,7 +29,7 @@ Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTT
 |---|---|
 | Framework | Micronaut 5 (`micronaut-parent`, `micronaut.runtime=lambda`) |
 | Build | Maven (wrapper `./mvnw`), Java 25, jar "fat" con `maven-shade-plugin` |
-| Persistencia | Micronaut Data JDBC (`GenericRepository`, sin escrituras) + HikariCP. Flyway solo en dev y tests |
+| Persistencia | Micronaut Data JDBC (`GenericRepository`, sin escrituras) y SQL con `JdbcOperations` (lecturas y la escritura de `cuenta`) + HikariCP. Un solo datasource. Flyway solo en dev y tests |
 | Seguridad | Micronaut Security JWT, HS256 (`JWT_SECRET`), contraseñas bcrypt (jBCrypt) |
 | Arranque | Sin SnapStart (Lambda no lo admite con imágenes de contenedor). `micronaut-crac` queda listo por si se pasa a un ZIP con el runtime `java25` |
 
@@ -41,8 +45,9 @@ Cada módulo sigue la misma estructura, y cada capa tiene su test:
 | Controlador + DTO | `ArbolController`, `ArbolResponse` | `ArbolesApiTest` (handler Lambda real) |
 
 Adaptadores: las tablas simples usan repositorios de Micronaut Data (`GenericRepository`, sin escrituras);
-los filtros opcionales, JOINs y agregados usan SQL con `JdbcOperations`, siempre con parámetros enlazados
-y nombrando columnas (así `contrasena_hash` y `token_dispositivo` nunca salen de la BD).
+los filtros opcionales, JOINs, agregados y las escrituras de `cuenta` usan SQL con `JdbcOperations`, siempre
+con parámetros enlazados y nombrando columnas, también en `INSERT/UPDATE ... RETURNING` (así `contrasena_hash`
+y `token_dispositivo` nunca salen de la BD).
 
 ## Módulos de consulta
 
@@ -57,6 +62,7 @@ se envían como `null`; un id que no es UUID da 400 y uno que no existe, 404.
 | `GET /analisis/{id}/evidencia` | cualquiera | `{url, expira}`: URL de S3 firmada por 5 min (`Cache-Control: no-store`); 404 si no tiene foto |
 | `GET /estadisticas` | cualquiera | `totales` (árboles, zonas, análisis, dispositivos, árboles y zonas con algún análisis `infestado`), conteos por resultado, tipo y sincronización (todas las categorías, 0 si no hay, en orden fijo), `cromaticoPromedio` (2 decimales) y `ultimaCaptura` |
 | `GET /cuentas` | `ADMINISTRADOR` (403 si no) | `{id, correo, nombreCompleto, rol, activa, fechaCreacion}`, por correo. Sin hash |
+| `POST /cuentas`, `PUT /cuentas/{id}`, `PATCH /cuentas/{id}/desactivar`, `PATCH /cuentas/{id}/activar` | `ADMINISTRADOR` (403 si no) | La cuenta como en `GET /cuentas`. Ver [Gestión de cuentas](#gestión-de-cuentas) |
 | `GET /dispositivos` | `ADMINISTRADOR` (403 si no) | `{id, identificadorUnico, nombreDispositivo, estado, fechaRegistro, cuentaVigente}`. Sin token |
 
 Fotos de evidencia: el bucket de TT_BKN (`descortezadores-archivos-prod`) es privado y también guarda
@@ -72,6 +78,48 @@ Filtros de `GET /analisis` (todos opcionales y combinables): `tipo` (`corteza`/`
 defecto). Orden: captura más reciente primero. Un valor inválido o `desde` > `hasta` da 400 con
 `{"message": "..."}`. Ejemplo: `GET /analisis?tipo=follaje&resultado=infestado&desde=2026-10-01T00:00:00Z`.
 
+## Gestión de cuentas
+
+No hay registro público (RN-01): solo un `ADMINISTRADOR` crea cuentas, y las edita, desactiva y reactiva
+desde la web (RF-26, CU-A02). Las cuentas no se borran. Todas las respuestas son la cuenta como en
+`GET /cuentas` (`{id, correo, nombreCompleto, rol, activa, fechaCreacion}`, sin hash) y los errores,
+`{"message": "..."}`.
+
+| Endpoint | Cuerpo | Éxito |
+|---|---|---|
+| `POST /cuentas` | `{correo, nombreCompleto, rol, contrasena}` | 201. Nace activa, con `fechaCreacion` = ahora |
+| `PUT /cuentas/{id}` | `{correo, nombreCompleto, rol, contrasena?}`: `contrasena` ausente, `null` o en blanco conserva la actual | 200 |
+| `PATCH /cuentas/{id}/desactivar` | — | 200 (`estado_cuenta = 'desactivada'`; repetirlo no falla) |
+| `PATCH /cuentas/{id}/activar` | — | 200 (`estado_cuenta = 'Activa'`) |
+
+Reglas:
+
+- `correo`: correo válido de hasta 254 caracteres; se guarda sin espacios y en minúsculas. Único sin importar
+  mayúsculas (el `UNIQUE` de TT_BKN sí las distingue, por eso se revisa con `lower(correo)`).
+- `nombreCompleto`: 1–255 caracteres, sin espacios alrededor. `rol`: `ADMINISTRADOR` o `EXPERTO_CAMPO`
+  (en la BD, `Administrador` / `Experto de campo`).
+- `contrasena`: obligatoria al crear; al menos 8 caracteres, no en blanco y **máximo 72 bytes en UTF-8**
+  (lo que BCrypt usa; el login sigue aceptando hasta 256 para las cuentas que creó TT_BKN). Se guarda con
+  BCrypt cost 10 (`$2a$`, como TT_BKN), así que la cuenta también entra a la app móvil.
+- Los campos que no son del contrato (estado, hash, id, fecha) se ignoran.
+
+| Estado | Cuándo |
+|---|---|
+| 400 | Cualquier regla anterior, JSON mal formado o `id` que no es UUID |
+| 401 / 403 | Sin token / el token no es de `ADMINISTRADOR` |
+| 404 | El `id` no existe |
+| 409 | El correo ya es de otra cuenta (`Ya existe una cuenta con ese correo`); el administrador intenta desactivarse o quitarse el rol `ADMINISTRADOR` (se quedaría sin acceso); o el cambio dejaría el sistema sin administradores activos (`Debe quedar al menos un administrador activo`: p. ej., dos administradores que se desactivan uno al otro a la vez; el `UPDATE` bloquea las filas de los administradores activos y solo aplica el cambio si queda otro) |
+
+**Efecto inmediato en los tokens**: el login guarda en el JWT el id de la cuenta (claim `cid`) además del
+correo (`sub`) y el rol. Un JWT solo autentica si la cuenta de ese id sigue activa, con el mismo correo y el
+mismo rol que dice el token (`CuentaVigenteJwtAuthenticationFactory`, una consulta por petición autenticada).
+Así, un token viejo nunca vale por otra cuenta que después tome ese correo. Al desactivar una cuenta o
+cambiarle el rol o el correo, sus tokens ya emitidos dan 401 en todos los endpoints, sin esperar a que
+venzan; se vuelve a iniciar sesión para obtener uno con el rol nuevo. Los tokens sin `cid` (emitidos antes
+de este cambio) dan 401: después de desplegarlo, todos vuelven a iniciar sesión una vez. Si un administrador cambia su propio
+correo, su token deja de valer y tiene que volver a entrar con el correo nuevo. Un token viejo enviado al login
+no estorba. Reactivar una cuenta vuelve a aceptar los tokens suyos que no hayan vencido.
+
 Código:
 
 - `tt.sheets.HealthController` — `GET /health` → `{"status":"UP"}` (no toca la BD).
@@ -84,6 +132,8 @@ Código:
 - `tt.sheets.auth.MeController` — `GET /me` (Bearer) → `{"username": correo, "displayName":
   nombre_completo}`; 401 sin token, con token inválido o expirado, o si la cuenta ya no está activa.
 - `tt.sheets.cuenta` — entidad `Cuenta` (tabla `cuenta`), `Rol` y repositorio.
+- `tt.sheets.administracion.GestionCuentasController` — alta y cambios de cuentas; reglas en
+  `GestionarCuentas` y `Contrasenas`, SQL en `JdbcAdministracionRepository`.
 
 ## Base de datos
 
@@ -107,6 +157,34 @@ migración nueva.
 |---|---|---|
 | `db/migration` | Réplica del esquema de TT_BKN (`V1`, `V3`, …) | Solo desarrollo y tests (nunca producción) |
 | `db/demo` | Datos de prueba (`V2`): cuentas `demo@sheets.tt` (Experto de campo), `admin@sheets.tt` (Administrador) y `baja@sheets.tt` (desactivada), todas con `Demo1234!`; un dispositivo, dos árboles, dos zonas, cinco análisis (`e1`–`e5`) y dos cromáticos | Solo desarrollo y tests |
+
+`db/migration` + `db/demo` son la **réplica local** del esquema de producción: las pruebas de gestión de
+cuentas escriben en ella (y borran lo que crean), pero no cambian el esquema. Producción no se migra.
+
+### Permisos en producción
+
+En producción b-sheet entra con el usuario de `DB_USER` (`sheets_lectura`), que hoy solo tiene `SELECT`. Para
+la gestión de cuentas necesita, **solo sobre `cuenta`** y por columna (sin `DELETE` ni DDL), lo que debe
+ejecutar el dueño de la BD de TT_BKN (b-sheet no lo hace):
+
+```sql
+GRANT INSERT (id_cuenta, correo, contrasena_hash, rol, estado_cuenta, fecha_creacion, nombre_completo)
+  ON cuenta TO sheets_lectura;
+GRANT UPDATE (correo, contrasena_hash, rol, estado_cuenta, nombre_completo)
+  ON cuenta TO sheets_lectura;
+
+-- Comprobar:
+SELECT privilege_type, column_name FROM information_schema.column_privileges
+WHERE grantee = 'sheets_lectura' AND table_name = 'cuenta' ORDER BY 1, 2;
+-- Si el rol tiene transacciones de solo lectura por defecto, quitarlo:
+SELECT rolconfig FROM pg_roles WHERE rolname = 'sheets_lectura';   -- ¿default_transaction_read_only=on?
+ALTER ROLE sheets_lectura RESET default_transaction_read_only;      -- solo si aparece
+```
+
+El `id_cuenta` se genera en Java (no depende de `gen_random_uuid()` ni de pgcrypto) y `fecha_creacion` es
+`now()`. El `SELECT` que ya tiene cubre el `WHERE` y el `RETURNING`, y el `UPDATE` por columna basta para el `SELECT ... FOR UPDATE` que protege al último administrador. Sin estos permisos los `GET` siguen
+funcionando y las escrituras dan 500 (`permission denied for table cuenta`). Comprobado contra la réplica local
+con un rol que solo tenía `SELECT` y estos `GRANT`.
 
 `ProductionMigrationsTest` falla si alguna migración de `db/migration` inserta cuentas, y
 `ProductionConfigTest` falla si Flyway queda encendido sin los entornos `dev` o `test`.
@@ -216,7 +294,9 @@ curl -s localhost:8080/me -H "Authorization: Bearer $TOKEN"
 Los tests (JUnit 5) **invocan el handler real de Lambda** (`APIGatewayV2HTTPEventFunction`)
 con eventos `APIGatewayV2HTTPEvent` (payload 2.0), con el mismo builder de contexto que usa
 AWS, contra la BD `sheets_test`. Cubren health, login OK (payload exacto del contrato), login
-case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONTEXT_PATH=/api`.
+case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS, `CONTEXT_PATH=/api` y la gestión
+de cuentas (`GestionCuentasApiTest`: permisos, validación, 404/409, contraseñas y tokens cortados al
+desactivar o cambiar el rol).
 
 **Entradas que se rechazan** (las pruebas lo fijan):
 
@@ -228,6 +308,12 @@ case-insensitive, 401, 400, `/me` con y sin token, token inválido, CORS y `CONT
 | Filtros con valores inválidos, rango de fechas invertido, `limite` fuera de 1–500 o no numérico | 400 | `AnalisisApiTest` |
 | Intentos de inyección SQL en filtros e identificadores | 400, sin tocar datos | `AnalisisApiTest` |
 | Parámetro repetido (`?tipo=corteza&tipo=follaje`) | 400 (`ParametrosRepetidosFilter`, en todos los endpoints) | `AnalisisApiTest` |
+| Alta o edición de cuenta con correo inválido, nombre vacío, rol desconocido o contraseña corta, en blanco o de más de 72 bytes | 400 | `GestionCuentasApiTest` |
+| Correo de otra cuenta (también con otras mayúsculas) | 409 | `GestionCuentasApiTest` |
+| Administrador que se desactiva o se quita el rol | 409 | `GestionCuentasApiTest` |
+| Desactivar o degradar al último administrador activo, también con dos peticiones a la vez | 409 | `JdbcGestionCuentasRepositoryTest` |
+| Token de una cuenta desactivada o con el rol cambiado | 401 | `GestionCuentasApiTest` |
+| Token viejo cuando su correo pasa a otra cuenta; token sin `cid`, con el `cid` de otra cuenta o que no es UUID | 401 | `GestionCuentasApiTest`, `TokenManipuladoApiTest` |
 
 Se aceptan a propósito: parámetros desconocidos (se ignoran), parámetros vacíos (cuentan como no
 enviados) y contraseñas de más de 72 bytes (BCrypt solo usa los primeros 72, pero TT_BKN no limita
@@ -294,7 +380,7 @@ Notas:
 - **Sin SnapStart**: Lambda no lo admite en funciones de imagen de contenedor. Si el arranque en
   frío llega a molestar, la salida es empaquetar como ZIP con el runtime `java25` y activar
   SnapStart (`micronaut-crac` ya suspende Hikari antes del snapshot). Flyway corre durante la
-  inicialización: en producción va apagado (`FlywayEnabled=false`, usuario de solo lectura).
+  inicialización: en producción va apagado (`FlywayEnabled=false`, el usuario no tiene DDL).
 - **Arranque en frío**: `JAVA_TOOL_OPTIONS=-XX:+TieredCompilation -XX:TieredStopAtLevel=1`,
   logs concisos (CloudWatch ya agrega fecha y request id), Hikari y Flyway en `WARN`.
 

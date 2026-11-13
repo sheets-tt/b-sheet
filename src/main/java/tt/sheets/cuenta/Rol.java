@@ -11,6 +11,11 @@ public enum Rol {
         this.valorBd = valorBd;
     }
 
+    /** Texto que guarda la columna cuenta.rol (lo exige su CHECK). */
+    public String valorBd() {
+        return valorBd;
+    }
+
     public static Rol desdeBd(String valor) {
         for (Rol rol : values()) {
             if (rol.valorBd.equals(valor)) {

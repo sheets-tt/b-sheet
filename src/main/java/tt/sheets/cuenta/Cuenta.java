@@ -8,7 +8,7 @@ import io.micronaut.data.annotation.MappedProperty;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Tabla cuenta de TT_BKN (solo lectura desde b-sheet). */
+/** Tabla cuenta de TT_BKN. b-sheet la lee aquí; las altas y cambios de administración van por JdbcAdministracionRepository. */
 @MappedEntity("cuenta")
 public record Cuenta(
         @Id @MappedProperty("id_cuenta") UUID idCuenta,
@@ -19,8 +19,9 @@ public record Cuenta(
         @Nullable @MappedProperty("fecha_creacion") Instant fechaCreacion, // sin NOT NULL en TT_BKN
         @MappedProperty("nombre_completo") String nombreCompleto) {
 
-    /** Valor de TT_BKN; el otro posible es "desactivada". */
+    /** Valores de estado_cuenta en TT_BKN (los exige su CHECK). */
     public static final String ESTADO_ACTIVA = "Activa";
+    public static final String ESTADO_DESACTIVADA = "desactivada";
 
     /** Solo las cuentas activas pueden iniciar sesión o usar su token. */
     public boolean activa() {

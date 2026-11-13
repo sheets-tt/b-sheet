@@ -37,6 +37,8 @@ micronaut:
           allowed-methods:
             - GET
             - POST
+            - PUT
+            - PATCH
             - OPTIONS
           allowed-headers:
             - Authorization
@@ -67,7 +69,7 @@ datasources:
 flyway:
   datasources:
     default:
-      # Producción usa la BD de TT_BKN (RDS) con un usuario de solo lectura: no se migra.
+      # Producción usa la BD de TT_BKN (RDS), que no es de b-sheet: no se migra (su usuario no tiene DDL).
       # application-dev.yml y application-test.yml lo encienden para construir la réplica local.
       enabled: ${FLYWAY_ENABLED:false}
       locations: classpath:db/migration

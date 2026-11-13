@@ -2,7 +2,7 @@ package tt.sheets.administracion.domain;
 
 import java.util.List;
 
-/** Puerto de salida (solo lectura) para las vistas de administración. */
+/** Puerto de salida de las consultas de administración; los cambios a cuentas van por GestionCuentasRepository. */
 public interface AdministracionRepository {
 
     /** Todas las cuentas, ordenadas por correo. */

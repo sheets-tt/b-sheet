@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  sheets-tt backend (solo lectura). Micronaut en AWS Lambda (imagen java25 en ECR) detrás de
-  API Gateway HTTP API (payload v2). Lee la base de TT_BKN (RDS) con un usuario de solo lectura.
+  sheets-tt backend. Micronaut en AWS Lambda (imagen java25 en ECR) detrás de API Gateway HTTP API
+  (payload v2). Lee la base de TT_BKN (RDS); solo escribe en la tabla cuenta (administración de cuentas).
 
 Parameters:
   ImageUri:
@@ -40,7 +40,7 @@ Parameters:
       Usar "/api" solo si CloudFront reenvía /api/* sin esa función.
   FlywayEnabled:
     Type: String
-    # La BD es de TT_BKN y b-sheet entra con un usuario de solo lectura: no migra producción.
+    # La BD es de TT_BKN: b-sheet no migra producción (su usuario solo puede leer y escribir algunas columnas de cuenta).
     Default: 'false'
     AllowedValues: ['true', 'false']
   EvidenciasBucket:

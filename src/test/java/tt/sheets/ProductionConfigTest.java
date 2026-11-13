@@ -9,7 +9,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * En producción la BD es la de TT_BKN (RDS) y el backend entra con un usuario de solo lectura:
+ * En producción la BD es la de TT_BKN (RDS) y el backend entra con un usuario sin permisos de DDL:
  * Flyway no debe correr salvo que se pida explícitamente.
  */
 class ProductionConfigTest {

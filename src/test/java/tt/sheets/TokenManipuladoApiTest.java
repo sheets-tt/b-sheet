@@ -32,6 +32,8 @@ class TokenManipuladoApiTest {
     private static final String SECRETO = "test-only-secret-0123456789abcdefghijklmnop";
     private static final String OTRO_SECRETO = "otro-secreto-que-no-es-del-servidor-0123456789";
     private static final String EXPERTO = "demo@sheets.tt";
+    private static final String EXPERTO_ID = "a0000000-0000-0000-0000-000000000001";
+    private static final String ADMIN_ID = "a0000000-0000-0000-0000-000000000002";
 
     private LambdaTestSupport lambda;
 
@@ -46,7 +48,17 @@ class TokenManipuladoApiTest {
     }
 
     private static String firmado(String secreto, String correo, List<String> roles, Instant expira) throws JOSEException {
-        JWTClaimsSet claims = new JWTClaimsSet.Builder()
+        return firmado(secreto, correo, roles, expira, EXPERTO_ID);
+    }
+
+    /** {@code cid} null: token sin el claim del id de cuenta (como los emitidos antes de agregarlo). */
+    private static String firmado(String secreto, String correo, List<String> roles, Instant expira, String cid)
+            throws JOSEException {
+        JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder();
+        if (cid != null) {
+            builder.claim("cid", cid);
+        }
+        JWTClaimsSet claims = builder
                 .subject(correo)
                 .claim("roles", roles)
                 .issueTime(Date.from(Instant.now().minusSeconds(60)))
@@ -114,5 +126,30 @@ class TokenManipuladoApiTest {
         assertEquals(401, status("/me", "no-es-un-jwt"));
         assertEquals(401, status("/me", ""));
         assertEquals(401, lambda.get("/me", Map.of("authorization", "Basic ZGVtbzpEZW1vMTIzNCE=")).getStatusCode());
+    }
+
+    @Test
+    void unTokenSinIdDeCuentaNoPasa() throws Exception {
+        // Bien firmado y vigente, pero sin "cid": así eran los tokens antes de identificar la cuenta por id.
+        String token = firmado(SECRETO, EXPERTO, List.of("EXPERTO_CAMPO"), Instant.now().plusSeconds(600), null);
+        assertEquals(401, status("/me", token));
+        assertEquals(401, status("/arboles", token));
+    }
+
+    @Test
+    void unTokenConElIdDeOtraCuentaNoPasa() throws Exception {
+        // sub del experto con el id del administrador, y al revés: el id y el correo tienen que ser de la misma cuenta.
+        assertEquals(401, status("/me", firmado(SECRETO, EXPERTO, List.of("EXPERTO_CAMPO"),
+                Instant.now().plusSeconds(600), ADMIN_ID)));
+        assertEquals(401, status("/cuentas", firmado(SECRETO, "admin@sheets.tt", List.of("ADMINISTRADOR"),
+                Instant.now().plusSeconds(600), EXPERTO_ID)));
+    }
+
+    @Test
+    void unIdDeCuentaQueNoEsUuidOQueNoExisteNoPasa() throws Exception {
+        Instant expira = Instant.now().plusSeconds(600);
+        assertEquals(401, status("/me", firmado(SECRETO, EXPERTO, List.of("EXPERTO_CAMPO"), expira, "no-es-uuid")));
+        assertEquals(401, status("/me", firmado(SECRETO, EXPERTO, List.of("EXPERTO_CAMPO"), expira,
+                "f0000000-0000-0000-0000-00000000000f")));
     }
 }

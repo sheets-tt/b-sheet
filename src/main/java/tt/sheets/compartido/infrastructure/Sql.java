@@ -15,8 +15,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Lo común de los adaptadores SQL de solo lectura: conexión administrada por Micronaut,
- * parámetros siempre enlazados y conversión de timestamptz.
+ * Lo común de los adaptadores SQL: conexión administrada por Micronaut, parámetros siempre enlazados y
+ * conversión de timestamptz. {@link #lista} también sirve para INSERT/UPDATE ... RETURNING.
  */
 public final class Sql {
 

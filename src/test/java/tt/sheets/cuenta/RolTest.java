@@ -15,6 +15,14 @@ class RolTest {
     }
 
     @Test
+    void exposesTheDatabaseValueForWrites() {
+        for (Rol rol : Rol.values()) {
+            assertEquals(rol, Rol.desdeBd(rol.valorBd()));
+        }
+        assertEquals("Experto de campo", Rol.EXPERTO_CAMPO.valorBd());
+    }
+
+    @Test
     void rejectsUnknownValues() {
         assertThrows(IllegalArgumentException.class, () -> Rol.desdeBd("USUARIO"));
     }

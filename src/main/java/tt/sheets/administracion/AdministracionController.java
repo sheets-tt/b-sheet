@@ -9,7 +9,7 @@ import tt.sheets.administracion.application.ConsultarAdministracion;
 
 import java.util.List;
 
-/** GET /cuentas y GET /dispositivos — solo para el rol ADMINISTRADOR (403 para los demás). */
+/** GET /cuentas y GET /dispositivos — solo para el rol ADMINISTRADOR (403 para los demás). Altas y cambios: GestionCuentasController. */
 @Controller
 @Secured("ADMINISTRADOR")
 public class AdministracionController {

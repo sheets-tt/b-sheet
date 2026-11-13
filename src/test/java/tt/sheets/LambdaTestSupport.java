@@ -111,6 +111,11 @@ final class LambdaTestSupport implements AutoCloseable {
         return Map.of("authorization", "Bearer " + json(res).get("access_token"));
     }
 
+    /** Bean del contexto del handler (p. ej. JdbcOperations para limpiar lo que crea una prueba). */
+    <T> T bean(Class<T> tipo) {
+        return context.getBean(tipo);
+    }
+
     static String body(APIGatewayV2HTTPResponse response) {
         String b = response.getBody();
         if (b != null && response.getIsBase64Encoded()) {

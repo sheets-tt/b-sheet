@@ -31,7 +31,7 @@ permissions:
   contents: read
 
 env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'sheets-tt/b-sheet' }}
 
 jobs:
@@ -222,15 +222,23 @@ jobs:
           IMAGE_URI: ${{ needs.release.outputs.image }}
           STACK_NAME: ${{ vars.SAM_STACK_NAME || 'sheets-backend' }}
         run: |
-          VPC=()
-          if [ -n "$SUBNET_IDS" ]; then VPC=("SubnetIds=$SUBNET_IDS" "SecurityGroupIds=$SECURITY_GROUP_IDS"); fi
+          # Quita espacios y saltos de línea pegados por accidente: sam rechaza "Clave= valor".
+          limpio() { printf '%s' "$1" | tr -d '[:space:]'; }
+          # sam tampoco acepta "Clave=" vacío: solo se mandan los parámetros con valor
+          # (los demás toman su Default del template).
+          PARAMS=("ImageUri=$(limpio "$IMAGE_URI")")
+          agregar() { local v; v=$(limpio "$2"); if [ -n "$v" ]; then PARAMS+=("$1=$v"); fi; }
+          agregar DbUrl "$DB_URL"
+          agregar DbUser "$DB_USER"
+          agregar CorsAllowedOrigins "$CORS_ALLOWED_ORIGINS"
+          agregar SubnetIds "$SUBNET_IDS"
+          agregar SecurityGroupIds "$SECURITY_GROUP_IDS"
+          for requerido in DbUrl DbUser; do
+            printf '%s\n' "${PARAMS[@]}" | grep -q "^$requerido=" || { echo "::error::Falta el secreto de $requerido"; exit 1; }
+          done
           sam deploy \
             --stack-name "$STACK_NAME" \
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset --no-fail-on-empty-changeset \
             --image-repository "${IMAGE_URI%@*}" \
-            --parameter-overrides \
-              "ImageUri=$IMAGE_URI" \
-              "DbUrl=$DB_URL" "DbUser=$DB_USER" \
-              "CorsAllowedOrigins=$CORS_ALLOWED_ORIGINS" \
-              "${VPC[@]}"
+            --parameter-overrides "${PARAMS[@]}"

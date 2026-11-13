@@ -1,7 +1,7 @@
 # b-sheet — backend web de sheets-tt (solo lectura)
 
 Backend de **sheets-tt** para la web: Micronaut + PostgreSQL, empaquetado para
-**AWS Lambda (runtime administrado `java25`, arm64) con SnapStart**, detrás de **API Gateway HTTP API
+**AWS Lambda (imagen de contenedor `java25`, arm64)**, detrás de **API Gateway HTTP API
 (payload v2)**. Lee la base de datos de **TT_BKN** (RDS `descortezadores-db`, donde escribe la app
 móvil) con un **usuario de solo lectura**: b-sheet no inserta, modifica ni migra producción.
 
@@ -14,7 +14,7 @@ de consulta, todos `GET` y con JWT (ver [Módulos de consulta](#módulos-de-cons
 Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTTP API ($default, payload 2.0)
                                                           │  ANY /{proxy+}
                                                           ▼
-                                    Lambda java25 arm64 + SnapStart (alias "live")
+                                    Lambda java25 arm64, imagen de contenedor (alias "live")
                                     handler: io.micronaut.function.aws.proxy.payload2.APIGatewayV2HTTPEventFunction
                                                           │  JDBC + SSL (Hikari, pool máx. 2), usuario de solo lectura
                                                           ▼
@@ -27,7 +27,7 @@ Web (S3 + CloudFront) ──/api/*──► CloudFront ──► API Gateway HTT
 | Build | Maven (wrapper `./mvnw`), Java 25, jar "fat" con `maven-shade-plugin` |
 | Persistencia | Micronaut Data JDBC (`GenericRepository`, sin escrituras) + HikariCP. Flyway solo en dev y tests |
 | Seguridad | Micronaut Security JWT, HS256 (`JWT_SECRET`), contraseñas bcrypt (jBCrypt) |
-| SnapStart | `micronaut-crac`: suspende el pool Hikari antes del snapshot y lo refresca al restaurar |
+| Arranque | Sin SnapStart (Lambda no lo admite con imágenes de contenedor). `micronaut-crac` queda listo por si se pasa a un ZIP con el runtime `java25` |
 
 ### Capas (TDD)
 
@@ -248,8 +248,8 @@ docker build -t sheets-backend .   # imagen de Lambda (Dockerfile, base public.e
 
 ## Despliegue con AWS SAM
 
-`template.yaml` define la función (imagen de contenedor java25 en arm64/Graviton, 1024 MB, timeout 20 s, **SnapStart en
-`PublishedVersions`** con alias `live`), el HTTP API (`ANY /{proxy+}`, stage `$default`,
+`template.yaml` define la función (imagen de contenedor java25 en arm64/Graviton, 1024 MB, timeout 20 s, alias `live`
+sobre la última versión publicada), el HTTP API (`ANY /{proxy+}`, stage `$default`,
 payload 2.0) y un log group con retención de 14 días.
 
 En CI/CD lo hace el job `deploy` de `.github/workflows/pipeline.yml`. A mano, con una imagen ya
@@ -291,11 +291,10 @@ Notas:
   (o si no se usa la distribución de f-sheet); en ese caso el backend serviría `/api/health`, etc.
 - **CORS** lo resuelve Micronaut. No configures CORS en el HTTP API, porque API Gateway
   respondería los preflight con otras reglas.
-- **SnapStart**: solo aplica a versiones publicadas; el evento HttpApi apunta al alias `live`.
-  `micronaut-crac` suspende Hikari antes del snapshot (`allow-pool-suspension: true`), así que
-  no se restauran conexiones TCP muertas. Flyway corre durante la inicialización, es decir,
-  al publicar la versión: **la BD debe ser alcanzable al desplegar**. Si no lo es, despliega
-  con `FlywayEnabled=false` y migra aparte con Flyway en Docker (ver [Base de datos](#base-de-datos-flyway)).
+- **Sin SnapStart**: Lambda no lo admite en funciones de imagen de contenedor. Si el arranque en
+  frío llega a molestar, la salida es empaquetar como ZIP con el runtime `java25` y activar
+  SnapStart (`micronaut-crac` ya suspende Hikari antes del snapshot). Flyway corre durante la
+  inicialización: en producción va apagado (`FlywayEnabled=false`, usuario de solo lectura).
 - **Arranque en frío**: `JAVA_TOOL_OPTIONS=-XX:+TieredCompilation -XX:TieredStopAtLevel=1`,
   logs concisos (CloudWatch ya agrega fecha y request id), Hikari y Flyway en `WARN`.
 

@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  sheets-tt backend (login). Micronaut 4 en AWS Lambda (imagen java25 en ECR) + SnapStart detrás de
-  API Gateway HTTP API (payload v2). PostgreSQL vive FUERA de AWS.
+  sheets-tt backend (solo lectura). Micronaut en AWS Lambda (imagen java25 en ECR) detrás de
+  API Gateway HTTP API (payload v2). Lee la base de TT_BKN (RDS) con un usuario de solo lectura.
 
 Parameters:
   ImageUri:
@@ -80,9 +80,8 @@ Resources:
       Architectures: [arm64]
       MemorySize: 1024
       Timeout: 20
-      SnapStart:
-        ApplyOn: PublishedVersions
-      # SnapStart solo aplica a versiones publicadas: el alias "live" apunta siempre a la última.
+      # Sin SnapStart: Lambda no lo admite en funciones de imagen de contenedor (PackageType: Image)
+      # y el despliegue fallaría. El alias "live" apunta siempre a la última versión publicada.
       AutoPublishAlias: live
       VpcConfig: !If
         - UseVpc

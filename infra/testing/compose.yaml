@@ -1,0 +1,64 @@
+# Ambiente de pruebas en la Raspberry Pi (rama "testing"). Lo despliega el runner de GitHub de la Pi:
+#   b-sheet → construye sheets-testing-api, copia este archivo a /opt/sheets-testing y levanta db + api
+#   f-sheet → construye sheets-testing-web y levanta web (necesita que api ya exista: nginx resuelve
+#             "api" al arrancar)
+# Los secretos (POSTGRES_PASSWORD, JWT_SECRET) viven solo en /opt/sheets-testing/.env, en la Pi,
+# creados por ops/raspberry-testing.sh. Nada de producción: BD propia con los datos demo y AWS ficticio.
+name: sheets-testing
+
+services:
+  db:
+    # Misma versión mayor que el RDS de producción (16.3).
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: sheets
+      POSTGRES_USER: sheets
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?falta POSTGRES_PASSWORD en /opt/sheets-testing/.env}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sheets -d sheets"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # Sin puertos publicados: solo la red interna del ambiente (la Pi ya tiene el Postgres de Immich).
+    mem_limit: 512m
+    restart: unless-stopped
+
+  api:
+    image: sheets-testing-api:latest
+    pull_policy: never
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Perfil dev: Flyway crea la réplica del esquema de TT_BKN + db/demo (cuentas demo@sheets.tt…).
+      MICRONAUT_ENVIRONMENTS: dev
+      DB_URL: jdbc:postgresql://db:5432/sheets
+      DB_USER: sheets
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?falta JWT_SECRET en /opt/sheets-testing/.env}
+      CORS_ALLOWED_ORIGINS: https://testing.formyke.com,http://192.168.100.103:8180
+      # AWS ficticio: nunca llega a S3 real. Las fotos de evidencia no cargan en este ambiente.
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: AKIATESTINGFICTICIA
+      AWS_SECRET_ACCESS_KEY: testing-ficticio
+      EVIDENCIAS_BUCKET: sheets-testing-sin-fotos
+    mem_limit: 1g
+    restart: unless-stopped
+
+  web:
+    image: sheets-testing-web:latest
+    pull_policy: never
+    depends_on:
+      - api
+    environment:
+      API_UPSTREAM: http://api:8080
+    # 8180 en la LAN; cloudflared publica testing.formyke.com → http://localhost:8180.
+    ports:
+      - "8180:8080"
+    mem_limit: 128m
+    restart: unless-stopped
+
+volumes:
+  db:

@@ -319,6 +319,14 @@ Se aceptan a propósito: parámetros desconocidos (se ignoran), parámetros vac�
 enviados) y contraseñas de más de 72 bytes (BCrypt solo usa los primeros 72, pero TT_BKN no limita
 el largo al registrar y su dueño tiene que poder entrar).
 
+## Ambiente de pruebas (Raspberry Pi)
+
+Un push a la rama `testing` despliega b-sheet en la Raspberry Pi de casa con `.github/workflows/testing.yml`
+(runner self-hosted, etiqueta `raspberry`). Usa `Dockerfile.servidor` (servidor Netty con el perfil `dev`,
+no la imagen de Lambda) y `infra/testing/compose.yaml` (Postgres 16 propio con los datos demo + api + la web
+de f-sheet en `:8180`). Sin AWS ni datos de producción; los secretos viven solo en `/opt/sheets-testing/.env`
+de la Pi. Guía completa: `docs/ambiente-testing.md` en f-sheet.
+
 ## Empaquetado para Lambda
 
 ```bash

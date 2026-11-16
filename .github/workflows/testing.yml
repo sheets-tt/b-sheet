@@ -1,0 +1,58 @@
+# Despliega b-sheet (db + api) en el ambiente de pruebas de la Raspberry Pi al hacer push a "testing".
+# Corre en el runner self-hosted de la Pi (etiqueta "raspberry"); no usa AWS ni secretos de GitHub.
+name: Testing (Raspberry Pi)
+
+on:
+  push:
+    branches: [testing]
+  workflow_dispatch:
+
+concurrency:
+  group: sheets-testing-api
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  desplegar:
+    runs-on: [self-hosted, linux, ARM64, raspberry]
+    timeout-minutes: 30
+    env:
+      DIR: /opt/sheets-testing
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Verificar el ambiente de la Pi
+        run: |
+          test -r "$DIR/.env" || { echo "::error::Falta $DIR/.env. En tu Mac: ops/raspberry-testing.sh entorno"; exit 1; }
+
+      - name: Construir la imagen del servidor
+        run: |
+          docker build -f Dockerfile.servidor \
+            --label tt.sheets.testing=api \
+            -t sheets-testing-api:latest -t "sheets-testing-api:${GITHUB_SHA::12}" .
+
+      - name: Publicar el compose del ambiente
+        run: install -m 644 infra/testing/compose.yaml "$DIR/compose.yaml"
+
+      - name: Levantar db y api
+        run: |
+          docker compose -f "$DIR/compose.yaml" --env-file "$DIR/.env" \
+            up -d --wait --wait-timeout 300 db api
+
+      - name: Probar la API
+        run: |
+          docker compose -f "$DIR/compose.yaml" --env-file "$DIR/.env" exec -T api \
+            bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && grep -q " 200 " <&3'
+          echo "API sana (commit ${GITHUB_SHA::12})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Si falló, mostrar los logs
+        if: failure()
+        run: docker compose -f "$DIR/compose.yaml" --env-file "$DIR/.env" logs --tail 150 api db || true
+
+      - name: Limpiar imágenes viejas de este ambiente
+        if: success()
+        run: |
+          docker images sheets-testing-api --format '{{.Tag}}' \
+            | grep -vxE "latest|${GITHUB_SHA::12}" | xargs -r -I{} docker rmi "sheets-testing-api:{}" || true

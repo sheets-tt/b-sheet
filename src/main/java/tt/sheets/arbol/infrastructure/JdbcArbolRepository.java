@@ -18,8 +18,10 @@ class JdbcArbolRepository implements ArbolRepository {
 
     private static final String SELECT = """
             SELECT a.id_arbol, a.nombre_especifico, a.especie, a.latitud, a.longitud, a.fecha_registro,
-                   a.descripcion, u.ultimo_id, u.ultimo_resultado, u.ultimo_fecha
+                   a.descripcion, u.ultimo_id, u.ultimo_resultado, u.ultimo_fecha,
+                   rp.id_cuenta AS registro_id, rp.nombre_completo AS registro_nombre
             FROM arbol a
+            LEFT JOIN cuenta rp ON rp.id_cuenta = a.id_cuenta
             """ + Sql.joinUltimoAnalisis("id_arbol", "a.id_arbol");
 
     private final JdbcOperations jdbc;
@@ -49,6 +51,7 @@ class JdbcArbolRepository implements ArbolRepository {
                 rs.getObject("longitud", Double.class),
                 Sql.instante(rs, "fecha_registro"),
                 rs.getString("descripcion"),
-                Sql.ultimoAnalisis(rs));
+                Sql.ultimoAnalisis(rs),
+                Sql.autor(rs, "registro_id", "registro_nombre"));
     }
 }

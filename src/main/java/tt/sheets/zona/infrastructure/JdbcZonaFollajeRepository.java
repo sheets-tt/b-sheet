@@ -18,8 +18,10 @@ class JdbcZonaFollajeRepository implements ZonaFollajeRepository {
 
     private static final String SELECT = """
             SELECT z.id_zona, z.nombre_zona, z.latitud_centro, z.longitud_centro, z.radio_metros,
-                   z.fecha_registro, z.descripcion, u.ultimo_id, u.ultimo_resultado, u.ultimo_fecha
+                   z.fecha_registro, z.descripcion, u.ultimo_id, u.ultimo_resultado, u.ultimo_fecha,
+                   rp.id_cuenta AS registro_id, rp.nombre_completo AS registro_nombre
             FROM zona_follaje z
+            LEFT JOIN cuenta rp ON rp.id_cuenta = z.id_cuenta
             """ + Sql.joinUltimoAnalisis("id_zona", "z.id_zona");
 
     private final JdbcOperations jdbc;
@@ -49,6 +51,7 @@ class JdbcZonaFollajeRepository implements ZonaFollajeRepository {
                 rs.getObject("radio_metros", Double.class),
                 Sql.instante(rs, "fecha_registro"),
                 rs.getString("descripcion"),
-                Sql.ultimoAnalisis(rs));
+                Sql.ultimoAnalisis(rs),
+                Sql.autor(rs, "registro_id", "registro_nombre"));
     }
 }

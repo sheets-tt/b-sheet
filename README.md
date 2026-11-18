@@ -56,9 +56,9 @@ se envían como `null`; un id que no es UUID da 400 y uno que no existe, 404.
 
 | Endpoint | Rol | Respuesta |
 |---|---|---|
-| `GET /arboles`, `GET /arboles/{id}` | cualquiera | `{id, nombreEspecifico, especie, latitud, longitud, fechaRegistro, descripcion, ultimoAnalisis}`, del más reciente al más antiguo. `ultimoAnalisis` = `{id, resultado, fechaCaptura}` o `null` |
-| `GET /zonas`, `GET /zonas/{id}` | cualquiera | `{id, nombreZona, latitudCentro, longitudCentro, radioMetros, fechaRegistro, descripcion, ultimoAnalisis}` |
-| `GET /analisis`, `GET /analisis/{id}` | cualquiera | `{id, tieneEvidencia, latitudCaptura, longitudCaptura, fechaCaptura, fechaSincronizacion, estadoSincronizacion, tipoImagen, resultadoClasificacion, confianza, observaciones, idArbol, idZona, cromatico}`; `cromatico` = `{pctSano, pctRegular, pctDanado, pctIncierto}` o `null` |
+| `GET /arboles`, `GET /arboles/{id}` | cualquiera | `{id, nombreEspecifico, especie, latitud, longitud, fechaRegistro, descripcion, ultimoAnalisis, registradoPor}`, del más reciente al más antiguo. `ultimoAnalisis` = `{id, resultado, fechaCaptura}` o `null`; `registradoPor` = `{id, nombre}` o `null`. El detalle agrega `seguimiento` (ver abajo) |
+| `GET /zonas`, `GET /zonas/{id}` | cualquiera | `{id, nombreZona, latitudCentro, longitudCentro, radioMetros, fechaRegistro, descripcion, ultimoAnalisis, registradoPor}`; el detalle agrega `seguimiento` |
+| `GET /analisis`, `GET /analisis/{id}` | cualquiera | `{id, tieneEvidencia, latitudCaptura, longitudCaptura, fechaCaptura, fechaSincronizacion, estadoSincronizacion, tipoImagen, resultadoClasificacion, confianza, observaciones, idArbol, idZona, cromatico, autor}`; `cromatico` = `{pctSano, pctRegular, pctDanado, pctIncierto}` o `null`; `autor` = `{id, nombre}` o `null` |
 | `GET /analisis/{id}/evidencia` | cualquiera | `{url, expira}`: URL de S3 firmada por 5 min (`Cache-Control: no-store`); 404 si no tiene foto |
 | `GET /estadisticas` | cualquiera | `totales` (árboles, zonas, análisis, dispositivos, árboles y zonas con algún análisis `infestado`), conteos por resultado, tipo y sincronización (todas las categorías, 0 si no hay, en orden fijo), `cromaticoPromedio` (2 decimales) y `ultimaCaptura` |
 | `GET /cuentas` | `ADMINISTRADOR` (403 si no) | `{id, correo, nombreCompleto, rol, activa, fechaCreacion}`, por correo. Sin hash |
@@ -71,6 +71,24 @@ clave relativa, sin `.`/`..`); `sin_imagen` o cualquier otra ruta dan 404. La UR
 (SigV4, `S3Presigner`, sin clientes HTTP) con el rol de la Lambda, que en `template.yaml` solo tiene
 `s3:GetObject` sobre `{bucket}/evidencias/*`. Variables: `EVIDENCIAS_BUCKET`, `EVIDENCIAS_REGION`.
 La ruta interna (`ruta_evidencia`) no se expone: la web solo recibe `tieneEvidencia`.
+
+Autores: `autor` (de cada análisis, `analisis.id_cuenta`) y `registradoPor` (de un árbol o zona,
+`id_cuenta`) son `{id, nombre}` con el `nombre_completo` de la cuenta (nunca el correo) o `null` si no se
+sabe o la cuenta ya no existe. `seguimiento` (solo en `GET /arboles/{id}` y `GET /zonas/{id}`) es la lista
+de personas distintas que han subido análisis de ese lugar, `[{id, nombre, analisis, ultimo}]`
+(`analisis` = cuántos, `ultimo` = su `fechaCaptura` más reciente), de la más reciente a la más antigua;
+los análisis sin autor no cuentan y puede ser `[]`. Ambos roles los ven.
+
+**Orden de despliegue:** `analisis.id_cuenta` la crea la migración de TT_BKN
+`docker/postgres/migraciones/2026-11-17_analisis_id_cuenta.sql`, que se aplica a mano en RDS. b-sheet puede
+desplegarse antes: `ColumnaAutorAnalisis` revisa `information_schema.columns` una vez (en la primera
+consulta) y, si la columna no existe, registra un `WARN` y responde `autor = null` y `seguimiento = []`
+(`registradoPor` funciona igual). El resultado se guarda hasta que la Lambda se reinicia: **después de
+aplicar la migración, el autor solo aparece a partir del siguiente arranque en frío o redespliegue de
+b-sheet**. Al revés, si se quita la columna (rollback de TT_BKN), b-sheet responde 500 en los análisis hasta
+reiniciarse o redesplegarse. Los análisis anteriores a la migración quedan sin autor. TT_BKN, en cambio, sí
+necesita la columna: sin ella fallan su sincronización y todas sus lecturas de análisis, así que la
+migración va antes de desplegarlo.
 
 Filtros de `GET /analisis` (todos opcionales y combinables): `tipo` (`corteza`/`follaje`), `resultado`
 (`sano`/`infestado`/`no_determinado`), `estado` (`pendiente`/`sincronizado`/`error`), `desde` y `hasta`
@@ -150,13 +168,13 @@ migración nueva.
 | `cuenta_dispositivo` | → `cuenta`, → `dispositivo`. `estado_cuenta_dispositivo` (`Activa`/`desasociada`) |
 | `arbol` | → `cuenta`, → `dispositivo` (opcional). Coordenadas `DOUBLE PRECISION` |
 | `zona_follaje` | → `cuenta`, → `dispositivo` (opcional). Centro + `radio_metros` |
-| `analisis` | `tipo_imagen` `corteza` → `arbol` o `follaje` → `zona_follaje` (exactamente uno). `resultado_clasificacion` (`sano`/`infestado`/`no_determinado`), `estado_sincronizacion` (`pendiente`/`sincronizado`/`error`) |
+| `analisis` | `tipo_imagen` `corteza` → `arbol` o `follaje` → `zona_follaje` (exactamente uno). `id_cuenta` → `cuenta` (autor, nullable, `ON DELETE SET NULL`; `V4`). `resultado_clasificacion` (`sano`/`infestado`/`no_determinado`), `estado_sincronizacion` (`pendiente`/`sincronizado`/`error`) |
 | `analisis_cromatico` | → `analisis`. `pct_sano`, `pct_regular`, `pct_danado`, `pct_incierto` |
 
 | Carpeta | Contenido | Dónde se aplica |
 |---|---|---|
 | `db/migration` | Réplica del esquema de TT_BKN (`V1`, `V3`, …) | Solo desarrollo y tests (nunca producción) |
-| `db/demo` | Datos de prueba (`V2`): cuentas `demo@sheets.tt` (Experto de campo), `admin@sheets.tt` (Administrador) y `baja@sheets.tt` (desactivada), todas con `Demo1234!`; un dispositivo, dos árboles, dos zonas, cinco análisis (`e1`–`e5`) y dos cromáticos | Solo desarrollo y tests |
+| `db/demo` | Datos de prueba (`V2`): cuentas `demo@sheets.tt` (Experto de campo), `admin@sheets.tt` (Administrador) y `baja@sheets.tt` (desactivada), todas con `Demo1234!`; un dispositivo, tres árboles, dos zonas, cinco análisis (`e1`–`e5`) y dos cromáticos. `V5`: `campo@sheets.tt` (Experto de campo, `Demo1234!`), autores de los análisis y `e6`: el Oyamel y la Zona lago menor tienen análisis de dos personas; `e5` queda sin autor | Solo desarrollo y tests |
 
 `db/migration` + `db/demo` son la **réplica local** del esquema de producción: las pruebas de gestión de
 cuentas escriben en ella (y borran lo que crean), pero no cambian el esquema. Producción no se migra.
@@ -179,6 +197,18 @@ WHERE grantee = 'sheets_lectura' AND table_name = 'cuenta' ORDER BY 1, 2;
 -- Si el rol tiene transacciones de solo lectura por defecto, quitarlo:
 SELECT rolconfig FROM pg_roles WHERE rolname = 'sheets_lectura';   -- ¿default_transaction_read_only=on?
 ALTER ROLE sheets_lectura RESET default_transaction_read_only;      -- solo si aparece
+```
+
+Para los autores (`analisis.id_cuenta`, `arbol.id_cuenta`, `zona_follaje.id_cuenta`, `cuenta.nombre_completo`)
+basta el `SELECT` que ya tiene sobre las tablas: un `GRANT SELECT ON <tabla>` a nivel de tabla cubre también
+las columnas que se agreguen después, así que la migración de TT_BKN no necesita un `GRANT` nuevo. Solo si en
+algún momento se hubiera dado `SELECT` por columna sobre `analisis`, habría que añadir (lo ejecuta el dueño
+de la BD):
+
+```sql
+GRANT SELECT (id_cuenta) ON analisis TO sheets_lectura;
+-- Comprobar: debe devolver una fila (true) con la migración aplicada
+SELECT has_column_privilege('sheets_lectura', 'analisis', 'id_cuenta', 'SELECT');
 ```
 
 El `id_cuenta` se genera en Java (no depende de `gen_random_uuid()` ni de pgcrypto) y `fecha_creacion` es

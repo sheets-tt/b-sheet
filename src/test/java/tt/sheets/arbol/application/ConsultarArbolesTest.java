@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ConsultarArbolesTest {
 
     private static final Arbol OYAMEL = new Arbol(UUID.fromString("b0000000-0000-0000-0000-000000000001"),
-            "Oyamel 1", "Abies religiosa", 19.42, -99.18, Instant.parse("2026-10-01T15:00:00Z"), null, null);
+            "Oyamel 1", "Abies religiosa", 19.42, -99.18, Instant.parse("2026-10-01T15:00:00Z"), null, null, null);
 
     private final ArbolRepository arboles = new ArbolRepository() {
         @Override

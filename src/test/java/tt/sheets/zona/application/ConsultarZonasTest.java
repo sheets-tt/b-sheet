@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ConsultarZonasTest {
 
     private static final ZonaFollaje LAGO = new ZonaFollaje(UUID.fromString("c0000000-0000-0000-0000-000000000001"),
-            "Zona lago", 19.42, -99.18, 50.0, Instant.parse("2026-10-02T16:00:00Z"), null, null);
+            "Zona lago", 19.42, -99.18, 50.0, Instant.parse("2026-10-02T16:00:00Z"), null, null, null);
 
     private final ZonaFollajeRepository zonas = new ZonaFollajeRepository() {
         @Override

@@ -1,17 +1,20 @@
 package tt.sheets.analisis.infrastructure;
 
 import io.micronaut.context.ApplicationContext;
+import io.micronaut.data.jdbc.runtime.JdbcOperations;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import tt.sheets.analisis.domain.Analisis;
 import tt.sheets.analisis.domain.AnalisisRepository;
+import tt.sheets.analisis.domain.Autor;
 import tt.sheets.analisis.domain.Cromatico;
 import tt.sheets.analisis.domain.EstadoSincronizacion;
 import tt.sheets.analisis.domain.FiltroAnalisis;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.TipoImagen;
+import tt.sheets.compartido.infrastructure.ColumnaAutorAnalisis;
 
 import java.time.Instant;
 import java.util.List;
@@ -20,12 +23,16 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
-/** Adaptador SQL contra la BD de tests (db/demo: e1..e5, cromático solo en e3 y e4). */
+/** Adaptador SQL contra la BD de tests (db/demo: e1..e6, cromático solo en e3 y e4; e5 sin autor). */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcAnalisisRepositoryTest {
 
     private static final UUID ARBOL_1 = UUID.fromString("b0000000-0000-0000-0000-000000000001");
     private static final UUID ZONA_1 = UUID.fromString("c0000000-0000-0000-0000-000000000001");
+
+    private static final Autor DEMO = new Autor(UUID.fromString("a0000000-0000-0000-0000-000000000001"), "Usuario Demo");
+    private static final Autor CAMPO = new Autor(UUID.fromString("a0000000-0000-0000-0000-000000000004"),
+            "Experta de Campo Demo");
 
     private ApplicationContext context;
     private AnalisisRepository analisis;
@@ -55,14 +62,14 @@ class JdbcAnalisisRepositoryTest {
 
     @Test
     void withoutFiltersReturnsMostRecentCaptureFirst() {
-        assertEquals(List.of(e(5), e(4), e(2), e(3), e(1)), ids(todos()));
+        assertEquals(List.of(e(5), e(4), e(2), e(6), e(3), e(1)), ids(todos()));
     }
 
     @Test
     void filtersByTypeResultAndSyncState() {
         assertEquals(List.of(e(5), e(4), e(3)),
                 ids(new FiltroAnalisis(TipoImagen.FOLLAJE, null, null, null, null, null, null, 100)));
-        assertEquals(List.of(e(5), e(1)),
+        assertEquals(List.of(e(5), e(6), e(1)),
                 ids(new FiltroAnalisis(null, Resultado.INFESTADO, null, null, null, null, null, 100)));
         assertEquals(List.of(e(4)),
                 ids(new FiltroAnalisis(null, null, EstadoSincronizacion.PENDIENTE, null, null, null, null, 100)));
@@ -72,13 +79,13 @@ class JdbcAnalisisRepositoryTest {
 
     @Test
     void filtersByTreeAndZone() {
-        assertEquals(List.of(e(1)), ids(new FiltroAnalisis(null, null, null, null, null, ARBOL_1, null, 100)));
+        assertEquals(List.of(e(6), e(1)), ids(new FiltroAnalisis(null, null, null, null, null, ARBOL_1, null, 100)));
         assertEquals(List.of(e(4), e(3)), ids(new FiltroAnalisis(null, null, null, null, null, null, ZONA_1, 100)));
     }
 
     @Test
     void dateRangeIsInclusive() {
-        assertEquals(List.of(e(4), e(2), e(3)), ids(new FiltroAnalisis(null, null, null,
+        assertEquals(List.of(e(4), e(2), e(6), e(3)), ids(new FiltroAnalisis(null, null, null,
                 Instant.parse("2026-10-04T12:00:00Z"), Instant.parse("2026-10-07T09:00:00Z"), null, null, 100)));
     }
 
@@ -92,7 +99,7 @@ class JdbcAnalisisRepositoryTest {
         assertEquals(Optional.of(new Analisis(e(1), "evidencias/e1.jpg", 19.4205, -99.1818,
                 Instant.parse("2026-10-03T15:10:00Z"), Instant.parse("2026-10-03T15:20:00Z"),
                 EstadoSincronizacion.SINCRONIZADO, TipoImagen.CORTEZA, Resultado.INFESTADO, 0.91,
-                "Galerías visibles", ARBOL_1, null, null)), analisis.findById(e(1)));
+                "Galerías visibles", ARBOL_1, null, null, DEMO)), analisis.findById(e(1)));
     }
 
     @Test
@@ -104,5 +111,34 @@ class JdbcAnalisisRepositoryTest {
     @Test
     void findByIdIsEmptyForUnknownId() {
         assertEquals(Optional.empty(), analisis.findById(UUID.randomUUID()));
+    }
+
+    @Test
+    void everyAnalysisCarriesItsAuthorOrNull() {
+        assertEquals(DEMO, analisis.findById(e(3)).orElseThrow().autor());
+        assertEquals(CAMPO, analisis.findById(e(4)).orElseThrow().autor());
+        assertEquals(null, analisis.findById(e(5)).orElseThrow().autor(), "e5 no tiene id_cuenta");
+        List<Autor> autores = analisis.buscar(todos()).stream().map(Analisis::autor).toList();
+        assertEquals(java.util.Arrays.asList(null, CAMPO, DEMO, CAMPO, DEMO, DEMO), autores);
+    }
+
+    @Test
+    void withoutTheColumnEveryAuthorIsNullAndNothingFails() {
+        AnalisisRepository sinColumna = new JdbcAnalisisRepository(context.getBean(JdbcOperations.class),
+                new ColumnaAutorAnalisis(context.getBean(JdbcOperations.class)) {
+                    @Override
+                    public boolean disponible() {
+                        return false;
+                    }
+                });
+        List<Analisis> todos = sinColumna.buscar(todos());
+        assertEquals(6, todos.size());
+        assertEquals(true, todos.stream().allMatch(a -> a.autor() == null));
+        assertEquals(null, sinColumna.findById(e(1)).orElseThrow().autor());
+    }
+
+    @Test
+    void detectsTheColumnInTheTestDatabase() {
+        assertEquals(true, context.getBean(ColumnaAutorAnalisis.class).disponible());
     }
 }

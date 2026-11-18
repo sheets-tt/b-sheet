@@ -1,6 +1,7 @@
 package tt.sheets.compartido.infrastructure;
 
 import io.micronaut.data.jdbc.runtime.JdbcOperations;
+import tt.sheets.analisis.domain.Autor;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.UltimoAnalisis;
 
@@ -75,6 +76,12 @@ public final class Sql {
                     LIMIT 1
                 ) u ON true
                 """.formatted(columnaAnalisis, columnaPropia);
+    }
+
+    /** Autor (id + nombre_completo) leído de dos columnas de un LEFT JOIN con cuenta; null si no hay fila. */
+    public static Autor autor(ResultSet rs, String columnaId, String columnaNombre) throws SQLException {
+        UUID id = rs.getObject(columnaId, UUID.class);
+        return id == null ? null : new Autor(id, rs.getString(columnaNombre));
     }
 
     public static UltimoAnalisis ultimoAnalisis(ResultSet rs) throws SQLException {

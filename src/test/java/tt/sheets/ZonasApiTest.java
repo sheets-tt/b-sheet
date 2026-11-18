@@ -18,6 +18,7 @@ class ZonasApiTest {
 
     private static final String LAGO_ID = "c0000000-0000-0000-0000-000000000001";
     private static final String CALZADA_ID = "c0000000-0000-0000-0000-000000000002";
+    private static final String DEMO_ID = "a0000000-0000-0000-0000-000000000001";
 
     private LambdaTestSupport lambda;
     private Map<String, String> auth;
@@ -59,6 +60,12 @@ class ZonasApiTest {
         esperado.put("descripcion", "Dosel mixto de oyameles");
         esperado.put("ultimoAnalisis", Map.of("id", "e0000000-0000-0000-0000-000000000004",
                 "resultado", "no_determinado", "fechaCaptura", "2026-10-07T09:00:00Z"));
+        esperado.put("registradoPor", Map.of("id", DEMO_ID, "nombre", "Usuario Demo"));
+        // Ordenado por la captura más reciente de cada persona (no por id): campo (10-07) antes que demo (10-04).
+        esperado.put("seguimiento", List.of(
+                Map.of("id", "a0000000-0000-0000-0000-000000000004", "nombre", "Experta de Campo Demo",
+                        "analisis", 1, "ultimo", "2026-10-07T09:00:00Z"),
+                Map.of("id", DEMO_ID, "nombre", "Usuario Demo", "analisis", 1, "ultimo", "2026-10-04T12:00:00Z")));
         assertEquals(esperado, lambda.json(res));
     }
 
@@ -78,5 +85,21 @@ class ZonasApiTest {
     @Test
     void detailInvalidIdIs400() {
         assertEquals(400, lambda.get("/zonas/no-es-uuid", auth).getStatusCode());
+    }
+
+    @Test
+    void analysesWithoutAuthorDoNotCountAsFollowUp() {
+        // Zona calzada: solo e5, sin id_cuenta.
+        Map<String, Object> json = lambda.json(lambda.get("/zonas/" + CALZADA_ID, auth));
+        assertEquals(List.of(), json.get("seguimiento"));
+        assertEquals(Map.of("id", DEMO_ID, "nombre", "Usuario Demo"), json.get("registradoPor"));
+    }
+
+    @Test
+    void listCarriesWhoRegisteredButNotTheFollowUp() {
+        for (Map<String, Object> z : lambda.jsonList(lambda.get("/zonas", auth))) {
+            assertEquals(Map.of("id", DEMO_ID, "nombre", "Usuario Demo"), z.get("registradoPor"), z.toString());
+            assertEquals(false, z.containsKey("seguimiento"));
+        }
     }
 }

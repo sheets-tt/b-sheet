@@ -5,6 +5,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import tt.sheets.analisis.domain.Autor;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.UltimoAnalisis;
 import tt.sheets.zona.domain.ZonaFollaje;
@@ -21,12 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JdbcZonaFollajeRepositoryTest {
 
+    // Las dos las registró demo@sheets.tt (zona_follaje.id_cuenta).
+    static final Autor DEMO = new Autor(UUID.fromString("a0000000-0000-0000-0000-000000000001"), "Usuario Demo");
+
     static final ZonaFollaje LAGO = new ZonaFollaje(UUID.fromString("c0000000-0000-0000-0000-000000000001"),
             "Zona lago menor", 19.421, -99.1825, 50.0, Instant.parse("2026-10-02T16:00:00Z"),
-            "Dosel mixto de oyameles", new UltimoAnalisis(UUID.fromString("e0000000-0000-0000-0000-000000000004"), Resultado.NO_DETERMINADO, Instant.parse("2026-10-07T09:00:00Z")));
+            "Dosel mixto de oyameles", new UltimoAnalisis(UUID.fromString("e0000000-0000-0000-0000-000000000004"), Resultado.NO_DETERMINADO, Instant.parse("2026-10-07T09:00:00Z")), DEMO);
     static final ZonaFollaje CALZADA = new ZonaFollaje(UUID.fromString("c0000000-0000-0000-0000-000000000002"),
             "Zona calzada", 19.422, -99.184, null, Instant.parse("2026-10-06T18:00:00Z"), null,
-            new UltimoAnalisis(UUID.fromString("e0000000-0000-0000-0000-000000000005"), Resultado.INFESTADO, Instant.parse("2026-10-08T11:00:00Z")));
+            new UltimoAnalisis(UUID.fromString("e0000000-0000-0000-0000-000000000005"), Resultado.INFESTADO, Instant.parse("2026-10-08T11:00:00Z")), DEMO);
 
     private ApplicationContext context;
     private ZonaFollajeRepository zonas;

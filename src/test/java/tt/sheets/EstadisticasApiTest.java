@@ -37,11 +37,11 @@ class EstadisticasApiTest {
         APIGatewayV2HTTPResponse res = lambda.get("/estadisticas", lambda.bearer("demo@sheets.tt"));
         assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
         assertEquals(Map.of(
-                "totales", Map.of("arboles", 3, "zonas", 2, "analisis", 5, "dispositivos", 1,
+                "totales", Map.of("arboles", 3, "zonas", 2, "analisis", 6, "dispositivos", 1,
                         "arbolesConInfestacion", 1, "zonasConInfestacion", 1),
-                "analisisPorResultado", Map.of("sano", 2, "infestado", 2, "no_determinado", 1),
-                "analisisPorTipo", Map.of("corteza", 2, "follaje", 3),
-                "analisisPorSincronizacion", Map.of("pendiente", 1, "sincronizado", 3, "error", 1),
+                "analisisPorResultado", Map.of("sano", 2, "infestado", 3, "no_determinado", 1),
+                "analisisPorTipo", Map.of("corteza", 3, "follaje", 3),
+                "analisisPorSincronizacion", Map.of("pendiente", 1, "sincronizado", 4, "error", 1),
                 "cromaticoPromedio", Map.of("pctSano", 55.0, "pctRegular", 15.0, "pctDanado", 7.5, "pctIncierto", 22.5),
                 "ultimaCaptura", "2026-10-08T11:00:00Z"), lambda.json(res));
     }

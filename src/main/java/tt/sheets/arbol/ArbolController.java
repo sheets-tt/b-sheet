@@ -8,20 +8,23 @@ import io.micronaut.scheduling.TaskExecutors;
 import io.micronaut.scheduling.annotation.ExecuteOn;
 import io.micronaut.security.annotation.Secured;
 import io.micronaut.security.rules.SecurityRule;
+import tt.sheets.analisis.application.ConsultarSeguimiento;
 import tt.sheets.arbol.application.ConsultarArboles;
 
 import java.util.List;
 import java.util.UUID;
 
-/** GET /arboles y GET /arboles/{id} — consulta de árboles registrados en campo (JWT Bearer). */
+/** GET /arboles y GET /arboles/{id} (con quién lo registró y quiénes le dan seguimiento) — JWT Bearer, cualquier rol. */
 @Controller("/arboles")
 @Secured(SecurityRule.IS_AUTHENTICATED)
 public class ArbolController {
 
     private final ConsultarArboles consultar;
+    private final ConsultarSeguimiento seguimiento;
 
-    public ArbolController(ConsultarArboles consultar) {
+    public ArbolController(ConsultarArboles consultar, ConsultarSeguimiento seguimiento) {
         this.consultar = consultar;
+        this.seguimiento = seguimiento;
     }
 
     @Get
@@ -32,9 +35,9 @@ public class ArbolController {
 
     @Get("/{id}")
     @ExecuteOn(TaskExecutors.BLOCKING)
-    public HttpResponse<ArbolResponse> obtener(@PathVariable UUID id) {
+    public HttpResponse<ArbolDetalleResponse> obtener(@PathVariable UUID id) {
         return consultar.obtener(id)
-                .map(a -> HttpResponse.ok(ArbolResponse.from(a)))
+                .map(a -> HttpResponse.ok(ArbolDetalleResponse.from(a, seguimiento.deArbol(id))))
                 .orElseGet(HttpResponse::notFound);
     }
 }

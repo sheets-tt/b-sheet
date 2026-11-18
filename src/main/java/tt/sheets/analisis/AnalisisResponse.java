@@ -10,14 +10,16 @@ import java.util.UUID;
 
 /**
  * JSON de un análisis. Tipo, resultado y estado van con los valores de la BD ("follaje", "no_determinado",
- * "pendiente"...). Claves nulas incluidas; fechas en ISO-8601 UTC.
+ * "pendiente"...). Claves nulas incluidas; fechas en ISO-8601 UTC. {@code autor}: quién lo subió, o null si
+ * no se sabe.
  */
 @JsonInclude(JsonInclude.Include.ALWAYS)
 @Serdeable
 public record AnalisisResponse(String id, boolean tieneEvidencia, Double latitudCaptura, Double longitudCaptura,
                                String fechaCaptura, String fechaSincronizacion, String estadoSincronizacion,
                                String tipoImagen, String resultadoClasificacion, Double confianza,
-                               String observaciones, String idArbol, String idZona, CromaticoResponse cromatico) {
+                               String observaciones, String idArbol, String idZona, CromaticoResponse cromatico,
+                               AutorResponse autor) {
 
     @Serdeable
     public record CromaticoResponse(Double pctSano, Double pctRegular, Double pctDanado, Double pctIncierto) {
@@ -32,7 +34,8 @@ public record AnalisisResponse(String id, boolean tieneEvidencia, Double latitud
         return new AnalisisResponse(a.id().toString(), tieneEvidencia, a.latitudCaptura(), a.longitudCaptura(),
                 texto(a.fechaCaptura()), texto(a.fechaSincronizacion()), a.estadoSincronizacion().valor(),
                 a.tipoImagen().valor(), a.resultadoClasificacion().valor(), a.confianza(), a.observaciones(),
-                texto(a.idArbol()), texto(a.idZona()), CromaticoResponse.from(a.cromatico()));
+                texto(a.idArbol()), texto(a.idZona()), CromaticoResponse.from(a.cromatico()),
+                AutorResponse.from(a.autor()));
     }
 
     private static String texto(Instant i) {

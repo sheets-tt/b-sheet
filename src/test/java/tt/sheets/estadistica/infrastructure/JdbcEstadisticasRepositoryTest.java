@@ -38,16 +38,16 @@ class JdbcEstadisticasRepositoryTest {
 
     @Test
     void totalsCountRowsAndInfestedTreesAndZones() {
-        // Infestados: e1 (árbol 1, corteza) y e5 (zona 2, follaje).
-        assertEquals(new Totales(3, 2, 5, 1, 1, 1), estadisticas.totales());
+        // Infestados: e1 y e6 (árbol 1, corteza) y e5 (zona 2, follaje).
+        assertEquals(new Totales(3, 2, 6, 1, 1, 1), estadisticas.totales());
     }
 
     @Test
     void countsGroupByDatabaseValue() {
-        assertEquals(Map.of(Resultado.SANO, 2L, Resultado.INFESTADO, 2L, Resultado.NO_DETERMINADO, 1L),
+        assertEquals(Map.of(Resultado.SANO, 2L, Resultado.INFESTADO, 3L, Resultado.NO_DETERMINADO, 1L),
                 estadisticas.contarPorResultado());
-        assertEquals(Map.of(TipoImagen.CORTEZA, 2L, TipoImagen.FOLLAJE, 3L), estadisticas.contarPorTipo());
-        assertEquals(Map.of(EstadoSincronizacion.PENDIENTE, 1L, EstadoSincronizacion.SINCRONIZADO, 3L,
+        assertEquals(Map.of(TipoImagen.CORTEZA, 3L, TipoImagen.FOLLAJE, 3L), estadisticas.contarPorTipo());
+        assertEquals(Map.of(EstadoSincronizacion.PENDIENTE, 1L, EstadoSincronizacion.SINCRONIZADO, 4L,
                 EstadoSincronizacion.ERROR, 1L), estadisticas.contarPorSincronizacion());
     }
 

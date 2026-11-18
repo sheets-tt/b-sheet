@@ -18,6 +18,9 @@ class ArbolesApiTest {
 
     private static final String OYAMEL_ID = "b0000000-0000-0000-0000-000000000001";
     private static final String AHUEHUETE_ID = "b0000000-0000-0000-0000-000000000002";
+    private static final String DEMO_ID = "a0000000-0000-0000-0000-000000000001";
+    private static final String CAMPO_ID = "a0000000-0000-0000-0000-000000000004";
+    private static final Map<String, Object> DEMO = Map.of("id", DEMO_ID, "nombre", "Usuario Demo");
 
     private LambdaTestSupport lambda;
     private Map<String, String> auth;
@@ -61,8 +64,15 @@ class ArbolesApiTest {
         esperado.put("longitud", -99.1818);
         esperado.put("fechaRegistro", "2026-10-01T15:00:00Z");
         esperado.put("descripcion", "Junto al lago menor");
-        esperado.put("ultimoAnalisis", Map.of("id", "e0000000-0000-0000-0000-000000000001",
-                "resultado", "infestado", "fechaCaptura", "2026-10-03T15:10:00Z"));
+        // e6 (10-05) es su análisis más reciente; infestado, como e1.
+        esperado.put("ultimoAnalisis", Map.of("id", "e0000000-0000-0000-0000-000000000006",
+                "resultado", "infestado", "fechaCaptura", "2026-10-05T15:00:00Z"));
+        esperado.put("registradoPor", DEMO);
+        // Dos personas le dan seguimiento: la captura más reciente primero.
+        esperado.put("seguimiento", List.of(
+                Map.of("id", CAMPO_ID, "nombre", "Experta de Campo Demo", "analisis", 1,
+                        "ultimo", "2026-10-05T15:00:00Z"),
+                Map.of("id", DEMO_ID, "nombre", "Usuario Demo", "analisis", 1, "ultimo", "2026-10-03T15:10:00Z")));
         assertEquals(esperado, lambda.json(res));
     }
 
@@ -88,5 +98,28 @@ class ArbolesApiTest {
     @Test
     void detailInvalidIdIs400() {
         assertEquals(400, lambda.get("/arboles/no-es-uuid", auth).getStatusCode());
+    }
+
+    @Test
+    void listCarriesWhoRegisteredButNotTheFollowUp() {
+        List<Map<String, Object>> arboles = lambda.jsonList(lambda.get("/arboles", auth));
+        for (Map<String, Object> a : arboles) {
+            assertEquals(DEMO, a.get("registradoPor"), a.toString());
+            assertEquals(false, a.containsKey("seguimiento"), "el seguimiento solo va en el detalle");
+        }
+    }
+
+    @Test
+    void treeWithoutAnalysesHasEmptyFollowUp() {
+        Map<String, Object> json = lambda.json(lambda.get("/arboles/b0000000-0000-0000-0000-000000000003", auth));
+        assertEquals(List.of(), json.get("seguimiento"));
+    }
+
+    @Test
+    void administratorSeesTheFollowUpWithoutEmails() {
+        APIGatewayV2HTTPResponse res = lambda.get("/arboles/" + OYAMEL_ID, lambda.bearer("admin@sheets.tt"));
+        assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
+        assertEquals(2, ((List<?>) lambda.json(res).get("seguimiento")).size());
+        assertEquals(false, LambdaTestSupport.body(res).contains("@sheets.tt"), LambdaTestSupport.body(res));
     }
 }

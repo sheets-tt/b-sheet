@@ -20,6 +20,9 @@ class AnalisisApiTest {
     private static final String E1 = "e0000000-0000-0000-0000-000000000001";
     private static final String E3 = "e0000000-0000-0000-0000-000000000003";
     private static final String E5 = "e0000000-0000-0000-0000-000000000005";
+    private static final String E6 = "e0000000-0000-0000-0000-000000000006";
+    private static final String DEMO_ID = "a0000000-0000-0000-0000-000000000001";
+    private static final String CAMPO_ID = "a0000000-0000-0000-0000-000000000004";
 
     private LambdaTestSupport lambda;
     private Map<String, String> auth;
@@ -48,17 +51,17 @@ class AnalisisApiTest {
 
     @Test
     void listWithoutFiltersReturnsEverythingMostRecentFirst() {
-        assertEquals(5, ids("/analisis").size());
+        assertEquals(6, ids("/analisis").size());
         assertEquals(E5, ids("/analisis").get(0));
     }
 
     @Test
     void listAppliesQueryFilters() {
         assertEquals(List.of(E5), ids("/analisis?tipo=follaje&resultado=infestado"));
-        assertEquals(List.of(E1), ids("/analisis?arbol=b0000000-0000-0000-0000-000000000001"));
+        assertEquals(List.of(E6, E1), ids("/analisis?arbol=b0000000-0000-0000-0000-000000000001"));
         assertEquals(2, ids("/analisis?zona=c0000000-0000-0000-0000-000000000001").size());
         assertEquals(1, ids("/analisis?estado=pendiente").size());
-        assertEquals(3, ids("/analisis?desde=2026-10-04T12:00:00Z&hasta=2026-10-07T09:00:00Z").size());
+        assertEquals(4, ids("/analisis?desde=2026-10-04T12:00:00Z&hasta=2026-10-07T09:00:00Z").size());
         assertEquals(2, ids("/analisis?limite=2").size());
     }
 
@@ -81,6 +84,7 @@ class AnalisisApiTest {
         esperado.put("idArbol", null);
         esperado.put("idZona", "c0000000-0000-0000-0000-000000000001");
         esperado.put("cromatico", Map.of("pctSano", 80.0, "pctRegular", 10.0, "pctDanado", 5.0, "pctIncierto", 5.0));
+        esperado.put("autor", Map.of("id", DEMO_ID, "nombre", "Usuario Demo"));
         assertEquals(esperado, lambda.json(res));
     }
 
@@ -130,7 +134,7 @@ class AnalisisApiTest {
                 "/analisis/e0000000-0000-0000-0000-000000000001'%20OR%201=1--")) {
             assertEquals(400, lambda.get(ataque, auth).getStatusCode(), ataque);
         }
-        assertEquals(5, ids("/analisis").size(), "los datos siguen intactos");
+        assertEquals(6, ids("/analisis").size(), "los datos siguen intactos");
     }
 
     @Test
@@ -156,5 +160,31 @@ class AnalisisApiTest {
     void detailUnknownIdIs404AndInvalidIdIs400() {
         assertEquals(404, lambda.get("/analisis/e0000000-0000-0000-0000-0000000000ff", auth).getStatusCode());
         assertEquals(400, lambda.get("/analisis/no-es-uuid", auth).getStatusCode());
+    }
+
+    @Test
+    void listAndHistoryCarryTheAuthorOfEachAnalysis() {
+        APIGatewayV2HTTPResponse res = lambda.get("/analisis?arbol=b0000000-0000-0000-0000-000000000001", auth);
+        assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
+        assertEquals(List.of(Map.of("id", CAMPO_ID, "nombre", "Experta de Campo Demo"),
+                        Map.of("id", DEMO_ID, "nombre", "Usuario Demo")),
+                lambda.jsonList(res).stream().map(a -> a.get("autor")).toList());
+    }
+
+    @Test
+    void analysisWithoutAuthorSendsNullAuthor() {
+        Map<String, Object> json = lambda.json(lambda.get("/analisis/" + E5, auth));
+        assertEquals(true, json.containsKey("autor"), json.toString());
+        assertEquals(null, json.get("autor"));
+    }
+
+    @Test
+    void administratorAlsoSeesAuthorsAndNoEmailIsLeaked() {
+        APIGatewayV2HTTPResponse res = lambda.get("/analisis", lambda.bearer("admin@sheets.tt"));
+        assertEquals(200, res.getStatusCode(), LambdaTestSupport.body(res));
+        assertEquals(Map.of("id", CAMPO_ID, "nombre", "Experta de Campo Demo"), lambda.jsonList(res).get(1).get("autor"));
+        String body = LambdaTestSupport.body(res);
+        assertEquals(false, body.contains("@sheets.tt"), "no debe salir ningún correo: " + body);
+        assertEquals(false, body.contains("$2a$"), "no debe salir ningún hash");
     }
 }

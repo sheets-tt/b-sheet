@@ -8,9 +8,11 @@ import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 import tt.sheets.analisis.application.ConsultarAnalisis;
+import tt.sheets.analisis.application.ConsultarSeguimiento;
 import tt.sheets.analisis.application.ObtenerEvidencia;
 import tt.sheets.analisis.domain.AnalisisRepository;
 import tt.sheets.analisis.domain.FirmadorEvidencias;
+import tt.sheets.analisis.domain.SeguimientoRepository;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -22,6 +24,11 @@ class AnalisisBeans {
     @Singleton
     ConsultarAnalisis consultarAnalisis(AnalisisRepository analisis) {
         return new ConsultarAnalisis(analisis);
+    }
+
+    @Singleton
+    ConsultarSeguimiento consultarSeguimiento(SeguimientoRepository seguimiento) {
+        return new ConsultarSeguimiento(seguimiento);
     }
 
     /**

@@ -38,7 +38,7 @@ class JdbcAdministracionRepositoryTest {
     @Test
     void listsAccountsByEmailWithRoleAndState() {
         List<CuentaResumen> cuentas = administracion.listarCuentas();
-        assertEquals(List.of("admin@sheets.tt", "baja@sheets.tt", "demo@sheets.tt"),
+        assertEquals(List.of("admin@sheets.tt", "baja@sheets.tt", "campo@sheets.tt", "demo@sheets.tt"),
                 cuentas.stream().map(CuentaResumen::correo).toList());
 
         CuentaResumen baja = cuentas.get(1);

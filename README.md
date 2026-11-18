@@ -357,6 +357,55 @@ no la imagen de Lambda) y `infra/testing/compose.yaml` (Postgres 16 propio con l
 de f-sheet en `:8180`). Sin AWS ni datos de producción; los secretos viven solo en `/opt/sheets-testing/.env`
 de la Pi. Guía completa: `docs/ambiente-testing.md` en f-sheet.
 
+## Pruebas de estrés
+
+Con [k6](https://k6.io) en Docker (imagen `grafana/k6:0.57.0`, no hay que instalar nada) y un historial en
+tablas fuera de la aplicación: `estres/resultados/historial.md` (y `.csv` para hojas de cálculo), una fila por
+corrida, más `estres/resultados/<corrida>.md` con el detalle por endpoint.
+
+```bash
+./estres/correr.sh levantar        # BD propia sheets_estres (nueva) + b-sheet en :8085, perfil dev
+./estres/correr.sh sembrar 20000   # volumen realista: 20 000 análisis, ~400 árboles, ~200 zonas
+./estres/correr.sh humo            # 1 usuario, 30 s: ¿responde todo?
+./estres/correr.sh carga           # 20 usuarios durante 2 min (uso normal)
+./estres/correr.sh estres          # escalones de 25 → 50 → 100 → 150 usuarios
+./estres/correr.sh pico            # de 5 a 200 usuarios de golpe y de vuelta
+./estres/correr.sh login           # 20 inicios de sesión por segundo (bcrypt)
+./estres/correr.sh detener         # apaga el b-sheet de estrés
+```
+
+- **Qué hace cada usuario virtual:** lo que haría una persona en la web: `/me`, Resumen (`/estadisticas`,
+  `/analisis?limite=500`), mapa (`/arboles`, `/zonas`), un seguimiento, filtros y detalle de Análisis con la
+  foto firmada (404 = sin foto cuenta como respuesta válida) y, 1 de cada 4, la administración.
+- **Umbrales:** p95 < 800 ms (login < 1500 ms) y < 1 % de errores. En `estres` y `pico` se esperan
+  incumplimientos: sirven para ver dónde empieza a degradarse.
+- **No toca nada más:** `sheets_estres` es una BD aparte en el Postgres de `docker compose` (ni la BD
+  `sheets` de desarrollo ni la del E2E); las credenciales de AWS son ficticias y la firma es local.
+- **Pool de BD:** en AWS cada Lambda atiende 1 petición a la vez con un pool de 2 y escala por instancias.
+  En local un solo servidor atiende a todos los usuarios virtuales, así que `levantar` usa un pool de 10
+  (`ESTRES_POOL=…` para cambiarlo); cada corrida anota con cuál se midió. Con pool 2 en local se mide sobre
+  todo la cola del pool (corrida `2026-11-18_172126_carga`).
+- **Otro ambiente:** la Raspberry Pi de `testing` o AWS solo con `ESTRES_REMOTO=1 ./estres/correr.sh carga
+  <url>` y escribiendo el dominio para confirmar. En AWS genera costo (Lambda, API Gateway) y carga real
+  sobre la BD de TT_BKN: hazlo en una ventana acordada y empieza por `humo`.
+
+### Hallazgo: índices del último análisis por lugar
+
+La primera corrida de `carga` con volumen mostró `GET /arboles` con p95 de **2.1 s** (el resto < 100 ms):
+`Sql.joinUltimoAnalisis` buscaba el análisis más reciente de cada árbol recorriendo `idx_analisis_fecha` y
+descartando ~10 000 filas por árbol. `V6__indices_ultimo_analisis.sql` agrega índices compuestos por lugar y
+fecha: la consulta pasa de ~630 ms a ~3 ms y `carga` de p95 827 ms a **23 ms** (ver `historial.md`).
+
+En producción Flyway no corre (la BD es de TT_BKN). Crear los índices a mano, sin bloquear escrituras de la
+app móvil (cada `CREATE INDEX CONCURRENTLY` va solo, fuera de una transacción):
+
+```sql
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_analisis_arbol_fecha
+    ON analisis (id_arbol, fecha_captura DESC, id_analisis) WHERE id_arbol IS NOT NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_analisis_zona_fecha
+    ON analisis (id_zona, fecha_captura DESC, id_analisis) WHERE id_zona IS NOT NULL;
+```
+
 ## Empaquetado para Lambda
 
 ```bash

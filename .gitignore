@@ -29,3 +29,9 @@ samconfig.toml
 .env*
 !.env.example
 /1
+
+# Pruebas de estrés: el historial (.md/.csv) sí se versiona; lo crudo y lo local no
+estres/resultados/crudos/
+estres/resultados/backend.log
+estres/resultados/backend.pid
+estres/resultados/pool

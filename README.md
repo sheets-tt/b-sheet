@@ -11,6 +11,8 @@ Endpoints: `GET /health`, `POST /auth/login`, `GET /me` (contrato `API_CONTRACT.
 de consulta, todos `GET` y con JWT (ver [Módulos de consulta](#módulos-de-consulta)), y la
 [gestión de cuentas](#gestión-de-cuentas) (`POST`/`PUT`/`PATCH /cuentas`, solo `ADMINISTRADOR`).
 
+> **Documentación navegable (MkDocs):** `python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt` y luego `.venv/bin/mkdocs serve` (http://127.0.0.1:8000). Las páginas de `docs/` incluyen secciones de este README: se edita aquí.
+
 ## Arquitectura
 
 ```

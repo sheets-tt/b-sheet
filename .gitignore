@@ -29,3 +29,6 @@ samconfig.toml
 .env*
 !.env.example
 /1
+
+# MkDocs
+/site/

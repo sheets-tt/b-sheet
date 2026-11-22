@@ -1,0 +1,72 @@
+# Documentación de b-sheet con MkDocs (Material). Las páginas incluyen secciones del README
+# (mkdocs-include-markdown-plugin): el README sigue siendo la única fuente.
+#   python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
+#   .venv/bin/mkdocs serve          # http://127.0.0.1:8000
+#   .venv/bin/mkdocs build --strict # lo mismo que corre el workflow docs.yml
+site_name: b-sheet · backend de Desco
+site_description: Backend web de sheets-tt (Micronaut + PostgreSQL en AWS Lambda)
+repo_url: https://github.com/sheets-tt/b-sheet
+repo_name: sheets-tt/b-sheet
+edit_uri: edit/testing/
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  language: es
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: brown
+      toggle:
+        icon: material/weather-night
+        name: Modo oscuro
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: brown
+      toggle:
+        icon: material/weather-sunny
+        name: Modo claro
+
+hooks:
+  - docs_hooks.py
+
+plugins:
+  - search:
+      lang: es
+  - include-markdown
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+      # Mismos ids que GitHub (conservan acentos): los enlaces del README siguen funcionando.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+
+nav:
+  - Inicio: index.md
+  - Arquitectura: arquitectura.md
+  - API: api.md
+  - Gestión de cuentas: cuentas.md
+  - Base de datos: base-de-datos.md
+  - Variables de entorno: configuracion.md
+  - Desarrollo local: desarrollo.md
+  - Despliegue: despliegue.md
+  - Seguridad: seguridad.md

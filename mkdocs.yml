@@ -1,6 +1,6 @@
 # Documentación de b-sheet con MkDocs (Material). Las páginas incluyen secciones del README
 # (mkdocs-include-markdown-plugin): el README sigue siendo la única fuente.
-#   python3 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt
+#   python3.12 -m venv .venv && .venv/bin/pip install -r requirements-docs.txt   (Python 3.10 o más)
 #   .venv/bin/mkdocs serve          # http://127.0.0.1:8000
 #   .venv/bin/mkdocs build --strict # lo mismo que corre el workflow docs.yml
 site_name: b-sheet · backend de Desco
@@ -8,12 +8,16 @@ site_description: Backend web de sheets-tt (Micronaut + PostgreSQL en AWS Lambda
 repo_url: https://github.com/sheets-tt/b-sheet
 repo_name: sheets-tt/b-sheet
 edit_uri: edit/testing/
+# Se publica en https://docs.formyke.com/b-sheet/ (CloudFront + Cloudflare Access; ver f-sheet/infra/docs.yaml).
+site_url: https://docs.formyke.com/b-sheet/
 docs_dir: docs
 site_dir: site
 
 theme:
   name: material
   language: es
+  # Sin Google Fonts: la CSP de la documentación solo permite recursos del mismo dominio.
+  font: false
   features:
     - navigation.sections
     - navigation.top

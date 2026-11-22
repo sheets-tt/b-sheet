@@ -68,3 +68,19 @@ updates:
       prefix: chore
       include: scope
     labels: [dependencies, python]
+
+  # requirements-docs.txt (MkDocs, en la raíz). Sin esta entrada Dependabot no lo revisaba.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: America/Mexico_City
+    commit-message:
+      prefix: chore
+      include: scope
+    labels: [dependencies, python, documentation]
+    groups:
+      mkdocs:
+        patterns: ["mkdocs*", "pymdown-extensions"]

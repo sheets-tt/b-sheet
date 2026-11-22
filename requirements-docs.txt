@@ -1,3 +1,6 @@
+# Requiere Python 3.10 o más (pymdown-extensions 11). El CI usa 3.12.
 mkdocs==1.6.1
-mkdocs-material==9.5.49
-mkdocs-include-markdown-plugin==7.1.2
+mkdocs-material==9.7.7
+mkdocs-include-markdown-plugin==7.1.8
+# Dependencia de mkdocs-material: fijada para no caer en versiones con vulnerabilidades (OSV).
+pymdown-extensions==11.0.2

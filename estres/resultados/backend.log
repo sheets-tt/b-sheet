@@ -1,0 +1,18 @@
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+ __  __ _                                  _   
+|  \/  (_) ___ _ __ ___  _ __   __ _ _   _| |_ 
+| |\/| | |/ __| '__/ _ \| '_ \ / _` | | | | __|
+| |  | | | (__| | | (_) | | | | (_| | |_| | |_ 
+|_|  |_|_|\___|_|  \___/|_| |_|\__,_|\__,_|\__|
+INFO  i.m.c.e.DefaultEnvironment - Established active environments: [dev]
+INFO  i.m.f.AbstractFlywayMigration - Running migrations for database with qualifier [default]
+INFO  i.m.r.Micronaut - Startup completed in 907ms. Server Running: http://localhost:8085
+WARN  c.z.h.p.HikariPool - sheets-pool - Thread starvation or clock leap detected (housekeeper delta=54s809ms).
+WARN  c.z.h.p.HikariPool - sheets-pool - Thread starvation or clock leap detected (housekeeper delta=2m43s259ms).
+WARN  c.z.h.p.HikariPool - sheets-pool - Thread starvation or clock leap detected (housekeeper delta=2m49s110ms).
+INFO  i.m.r.Micronaut - Embedded Application shutting down

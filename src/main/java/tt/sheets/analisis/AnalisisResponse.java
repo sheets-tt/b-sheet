@@ -19,7 +19,7 @@ public record AnalisisResponse(String id, boolean tieneEvidencia, Double latitud
                                String fechaCaptura, String fechaSincronizacion, String estadoSincronizacion,
                                String tipoImagen, String resultadoClasificacion, Double confianza,
                                String observaciones, String idArbol, String idZona, CromaticoResponse cromatico,
-                               AutorResponse autor) {
+                               AutorResponse autor, DispositivoAnalisisResponse dispositivo) {
 
     @Serdeable
     public record CromaticoResponse(Double pctSano, Double pctRegular, Double pctDanado, Double pctIncierto) {
@@ -35,7 +35,7 @@ public record AnalisisResponse(String id, boolean tieneEvidencia, Double latitud
                 texto(a.fechaCaptura()), texto(a.fechaSincronizacion()), a.estadoSincronizacion().valor(),
                 a.tipoImagen().valor(), a.resultadoClasificacion().valor(), a.confianza(), a.observaciones(),
                 texto(a.idArbol()), texto(a.idZona()), CromaticoResponse.from(a.cromatico()),
-                AutorResponse.from(a.autor()));
+                AutorResponse.from(a.autor()), DispositivoAnalisisResponse.from(a.dispositivo()));
     }
 
     private static String texto(Instant i) {

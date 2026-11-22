@@ -2,6 +2,7 @@ package tt.sheets.compartido.infrastructure;
 
 import io.micronaut.data.jdbc.runtime.JdbcOperations;
 import tt.sheets.analisis.domain.Autor;
+import tt.sheets.analisis.domain.DispositivoAnalisis;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.UltimoAnalisis;
 
@@ -82,6 +83,21 @@ public final class Sql {
     public static Autor autor(ResultSet rs, String columnaId, String columnaNombre) throws SQLException {
         UUID id = rs.getObject(columnaId, UUID.class);
         return id == null ? null : new Autor(id, rs.getString(columnaNombre));
+    }
+
+    /** Dispositivo de captura (id, nombre y código corto) leído de un LEFT JOIN con dispositivo; null si no hay fila. */
+    public static DispositivoAnalisis dispositivoAnalisis(
+            ResultSet rs, String colId, String colNombre, String colIdent) throws SQLException {
+        UUID id = rs.getObject(colId, UUID.class);
+        if (id == null) {
+            return null;
+        }
+        String nombre = rs.getString(colNombre);
+        String nombreLimpio = (nombre == null || nombre.isBlank()) ? "Dispositivo móvil" : nombre.trim();
+        String ident = rs.getString(colIdent);
+        String base = (ident != null && !ident.isBlank()) ? ident.trim() : id.toString().replace("-", "");
+        String codigo = base.length() > 4 ? base.substring(0, 4) : base;
+        return new DispositivoAnalisis(id, nombreLimpio, codigo);
     }
 
     public static UltimoAnalisis ultimoAnalisis(ResultSet rs) throws SQLException {

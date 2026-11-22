@@ -10,11 +10,13 @@ import tt.sheets.analisis.domain.Analisis;
 import tt.sheets.analisis.domain.AnalisisRepository;
 import tt.sheets.analisis.domain.Autor;
 import tt.sheets.analisis.domain.Cromatico;
+import tt.sheets.analisis.domain.DispositivoAnalisis;
 import tt.sheets.analisis.domain.EstadoSincronizacion;
 import tt.sheets.analisis.domain.FiltroAnalisis;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.TipoImagen;
 import tt.sheets.compartido.infrastructure.ColumnaAutorAnalisis;
+import tt.sheets.compartido.infrastructure.ColumnaDispositivoAnalisis;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +35,8 @@ class JdbcAnalisisRepositoryTest {
     private static final Autor DEMO = new Autor(UUID.fromString("a0000000-0000-0000-0000-000000000001"), "Usuario Demo");
     private static final Autor CAMPO = new Autor(UUID.fromString("a0000000-0000-0000-0000-000000000004"),
             "Experta de Campo Demo");
+    private static final DispositivoAnalisis DEMO_DISP = new DispositivoAnalisis(
+            UUID.fromString("d0000000-0000-0000-0000-000000000001"), "Pixel 7 Pro demo", "demo");
 
     private ApplicationContext context;
     private AnalisisRepository analisis;
@@ -99,7 +103,7 @@ class JdbcAnalisisRepositoryTest {
         assertEquals(Optional.of(new Analisis(e(1), "evidencias/e1.jpg", 19.4205, -99.1818,
                 Instant.parse("2026-10-03T15:10:00Z"), Instant.parse("2026-10-03T15:20:00Z"),
                 EstadoSincronizacion.SINCRONIZADO, TipoImagen.CORTEZA, Resultado.INFESTADO, 0.91,
-                "Galerías visibles", ARBOL_1, null, null, DEMO)), analisis.findById(e(1)));
+                "Galerías visibles", ARBOL_1, null, null, DEMO, DEMO_DISP)), analisis.findById(e(1)));
     }
 
     @Test
@@ -140,5 +144,26 @@ class JdbcAnalisisRepositoryTest {
     @Test
     void detectsTheColumnInTheTestDatabase() {
         assertEquals(true, context.getBean(ColumnaAutorAnalisis.class).disponible());
+        assertEquals(true, context.getBean(ColumnaDispositivoAnalisis.class).disponible());
+    }
+
+    @Test
+    void everyAnalysisCarriesItsDeviceOrNullAndDegradesWithoutColumn() {
+        assertEquals(DEMO_DISP, analisis.findById(e(1)).orElseThrow().dispositivo());
+        assertEquals(null, analisis.findById(e(5)).orElseThrow().dispositivo(), "e5 no tiene id_dispositivo");
+
+        JdbcOperations jdbc = context.getBean(JdbcOperations.class);
+        AnalisisRepository sinColDisp = new JdbcAnalisisRepository(jdbc,
+                context.getBean(ColumnaAutorAnalisis.class),
+                new ColumnaDispositivoAnalisis(jdbc) {
+                    @Override
+                    public boolean disponible() {
+                        return false;
+                    }
+                });
+        List<Analisis> todos = sinColDisp.buscar(todos());
+        assertEquals(6, todos.size());
+        assertEquals(true, todos.stream().allMatch(a -> a.dispositivo() == null));
+        assertEquals(DEMO, sinColDisp.findById(e(1)).orElseThrow().autor());
     }
 }

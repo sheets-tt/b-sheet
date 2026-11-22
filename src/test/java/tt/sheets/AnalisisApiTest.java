@@ -85,6 +85,8 @@ class AnalisisApiTest {
         esperado.put("idZona", "c0000000-0000-0000-0000-000000000001");
         esperado.put("cromatico", Map.of("pctSano", 80.0, "pctRegular", 10.0, "pctDanado", 5.0, "pctIncierto", 5.0));
         esperado.put("autor", Map.of("id", DEMO_ID, "nombre", "Usuario Demo"));
+        esperado.put("dispositivo",
+                Map.of("id", "d0000000-0000-0000-0000-000000000001", "nombre", "Pixel 7 Pro demo", "codigo", "demo"));
         assertEquals(esperado, lambda.json(res));
     }
 

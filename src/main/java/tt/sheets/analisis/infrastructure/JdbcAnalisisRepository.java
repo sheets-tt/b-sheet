@@ -1,6 +1,7 @@
 package tt.sheets.analisis.infrastructure;
 
 import io.micronaut.data.jdbc.runtime.JdbcOperations;
+import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
 import tt.sheets.analisis.domain.Analisis;
 import tt.sheets.analisis.domain.AnalisisRepository;
@@ -10,6 +11,7 @@ import tt.sheets.analisis.domain.FiltroAnalisis;
 import tt.sheets.analisis.domain.Resultado;
 import tt.sheets.analisis.domain.TipoImagen;
 import tt.sheets.compartido.infrastructure.ColumnaAutorAnalisis;
+import tt.sheets.compartido.infrastructure.ColumnaDispositivoAnalisis;
 import tt.sheets.compartido.infrastructure.Sql;
 
 import java.sql.ResultSet;
@@ -27,12 +29,13 @@ import java.util.UUID;
 class JdbcAnalisisRepository implements AnalisisRepository {
 
     // El esquema no impide varias filas de cromático por análisis: se toma una de forma determinista.
-    // %s: columnas del autor (con o sin analisis.id_cuenta, ver ColumnaAutorAnalisis).
+    // %s: columnas y JOIN opcionales para autor (analisis.id_cuenta) y dispositivo (analisis.id_dispositivo).
     private static final String SELECT = """
             SELECT a.id_analisis, a.ruta_evidencia, a.latitud_captura, a.longitud_captura, a.fecha_captura,
                    a.fecha_sincronizacion, a.estado_sincronizacion, a.tipo_imagen, a.resultado_clasificacion,
                    a.confianza, a.observaciones, a.id_arbol, a.id_zona,
                    c.pct_sano, c.pct_regular, c.pct_danado, c.pct_incierto,
+                   %s,
                    %s
             FROM analisis a
             LEFT JOIN LATERAL (
@@ -42,27 +45,41 @@ class JdbcAnalisisRepository implements AnalisisRepository {
                 ORDER BY id_analisis_cromatico
                 LIMIT 1
             ) c ON true
-            %s""";
-
-    // Solo nombre_completo: el correo y el hash de la cuenta nunca salen de aquí.
-    private static final String SELECT_CON_AUTOR = SELECT.formatted(
-            "au.id_cuenta AS autor_id, au.nombre_completo AS autor_nombre",
-            "LEFT JOIN cuenta au ON au.id_cuenta = a.id_cuenta\n");
-
-    private static final String SELECT_SIN_AUTOR = SELECT.formatted(
-            "NULL::uuid AS autor_id, NULL::varchar AS autor_nombre", "");
+            %s%s""";
 
     private final JdbcOperations jdbc;
 
     private final ColumnaAutorAnalisis columnaAutor;
 
+    private final ColumnaDispositivoAnalisis columnaDispositivo;
+
     JdbcAnalisisRepository(JdbcOperations jdbc, ColumnaAutorAnalisis columnaAutor) {
+        this(jdbc, columnaAutor, new ColumnaDispositivoAnalisis(jdbc));
+    }
+
+    @Inject
+    JdbcAnalisisRepository(
+            JdbcOperations jdbc,
+            ColumnaAutorAnalisis columnaAutor,
+            ColumnaDispositivoAnalisis columnaDispositivo) {
         this.jdbc = jdbc;
         this.columnaAutor = columnaAutor;
+        this.columnaDispositivo = columnaDispositivo;
     }
 
     private String select() {
-        return columnaAutor.disponible() ? SELECT_CON_AUTOR : SELECT_SIN_AUTOR;
+        boolean conAutor = columnaAutor.disponible();
+        boolean conDisp = columnaDispositivo.disponible();
+        // Solo nombre_completo / nombre_dispositivo + codigo corto: sin correo, hash ni token.
+        String autorCols = conAutor
+                ? "au.id_cuenta AS autor_id, au.nombre_completo AS autor_nombre"
+                : "NULL::uuid AS autor_id, NULL::varchar AS autor_nombre";
+        String dispCols = conDisp
+                ? "disp.id_dispositivo AS disp_id, disp.nombre_dispositivo AS disp_nombre, disp.identificador_unico AS disp_ident"
+                : "NULL::uuid AS disp_id, NULL::varchar AS disp_nombre, NULL::varchar AS disp_ident";
+        String autorJoin = conAutor ? "LEFT JOIN cuenta au ON au.id_cuenta = a.id_cuenta\n" : "";
+        String dispJoin = conDisp ? "LEFT JOIN dispositivo disp ON disp.id_dispositivo = a.id_dispositivo\n" : "";
+        return SELECT.formatted(autorCols, dispCols, autorJoin, dispJoin);
     }
 
     @Override
@@ -121,6 +138,7 @@ class JdbcAnalisisRepository implements AnalisisRepository {
                 rs.getObject("id_arbol", UUID.class),
                 rs.getObject("id_zona", UUID.class),
                 cromatico,
-                Sql.autor(rs, "autor_id", "autor_nombre"));
+                Sql.autor(rs, "autor_id", "autor_nombre"),
+                Sql.dispositivoAnalisis(rs, "disp_id", "disp_nombre", "disp_ident"));
     }
 }

@@ -32,3 +32,4 @@ samconfig.toml
 
 # MkDocs
 /site/
+__pycache__/

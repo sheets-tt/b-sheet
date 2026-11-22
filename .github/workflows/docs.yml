@@ -1,8 +1,10 @@
 # Documentación con MkDocs (Material): las páginas de docs/ incluyen secciones del README.
 # - En cada PR y push que toque la documentación: `mkdocs build --strict` (falla con enlaces o
 #   configuración rotos).
-# - Publicación en GitHub Pages solo desde main y solo si la variable de repositorio DOCS_PAGES es
-#   "true" (Settings → Pages → Source: GitHub Actions). Sin ella, el workflow solo valida.
+# - Solo en push a main: publica en https://docs.formyke.com/b-sheet/ (S3 privado + CloudFront, restringido
+#   con Cloudflare Access; infraestructura en f-sheet/infra/docs.yaml). Usa el rol OIDC de siempre
+#   (vars.AWS_ROLE_ARN, que confía en refs/heads/main) y las variables de repositorio DOCS_BUCKET y
+#   DOCS_DISTRIBUTION_ID. Si faltan, el paso de publicación se omite.
 name: Documentación
 
 on:
@@ -33,8 +35,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  construir:
+  documentacion:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -44,21 +49,33 @@ jobs:
           cache-dependency-path: requirements-docs.txt
       - run: pip install -r requirements-docs.txt
       - run: mkdocs build --strict
-      - if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DOCS_PAGES == 'true'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site
 
-  publicar:
-    needs: construir
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DOCS_PAGES == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.despliegue.outputs.page_url }}
-    steps:
-      - id: despliegue
-        uses: actions/deploy-pages@v4
+      - name: ¿Se publica?
+        id: publicar
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          BUCKET: ${{ vars.DOCS_BUCKET }}
+          DISTRIBUCION: ${{ vars.DOCS_DISTRIBUTION_ID }}
+        run: |
+          if [ -z "$BUCKET" ] || [ -z "$DISTRIBUCION" ]; then
+            echo "::notice::Faltan las variables DOCS_BUCKET / DOCS_DISTRIBUTION_ID: solo se validó la documentación."
+            echo "si=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "si=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.publicar.outputs.si == 'true'
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Publicar en S3 e invalidar CloudFront
+        if: steps.publicar.outputs.si == 'true'
+        env:
+          BUCKET: ${{ vars.DOCS_BUCKET }}
+          DISTRIBUCION: ${{ vars.DOCS_DISTRIBUTION_ID }}
+        run: |
+          aws s3 sync site/ "s3://$BUCKET/b-sheet/" --delete --only-show-errors
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUCION" --paths "/b-sheet/*" \
+            --query 'Invalidation.Id' --output text

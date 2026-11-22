@@ -35,7 +35,7 @@ class ObtenerEvidenciaTest {
 
     private static Analisis conRuta(UUID id, String ruta) {
         return new Analisis(id, ruta, null, null, AHORA, null, EstadoSincronizacion.SINCRONIZADO,
-                TipoImagen.CORTEZA, Resultado.SANO, null, null, UUID.randomUUID(), null, null, null);
+                TipoImagen.CORTEZA, Resultado.SANO, null, null, UUID.randomUUID(), null, null, null, null);
     }
 
     private ObtenerEvidencia caso(Analisis... existentes) {

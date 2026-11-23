@@ -423,6 +423,13 @@ Notas:
   inicialización: en producción va apagado (`FlywayEnabled=false`, el usuario no tiene DDL).
 - **Arranque en frío**: `JAVA_TOOL_OPTIONS=-XX:+TieredCompilation -XX:TieredStopAtLevel=1`,
   logs concisos (CloudWatch ya agrega fecha y request id), Hikari y Flyway en `WARN`.
+  El arranque tarda ~4 s y no baja con más memoria (1024 vs 2048 MB, medido con
+  `ops/lambda-frio.sh comparar`): se va en la imagen, la JVM, Micronaut y el secreto.
+- **Warmer** (`CalentarCadaMinutos`, por defecto `5`): una regla de EventBridge manda un `GET /health`
+  (evento de API Gateway v2) al alias `live` cada 5 minutos, así casi ninguna visita espera el arranque
+  en frío. `0` lo apaga; `10` o `15` lo espacian. Cuesta centavos al mes y cubre una instancia a la
+  vez (dos usuarios simultáneos tras un rato sin uso: el segundo aún espera). Medir el efecto con
+  `ops/lambda-frio.sh estado` (arranques en frío reales de los últimos 14 días).
 
 ## Red: Lambda → PostgreSQL externo
 

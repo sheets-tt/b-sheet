@@ -58,10 +58,19 @@ Parameters:
   SecurityGroupIds:
     Type: CommaDelimitedList
     Default: ''
+  CalentarCadaMinutos:
+    Type: String
+    Default: '5'
+    AllowedValues: ['0', '5', '10', '15']
+    Description: >
+      Cada cuántos minutos EventBridge manda un GET /health al alias live para que haya una instancia
+      viva y los usuarios no esperen el arranque en frío (~4 s; ops/lambda-frio.sh mostró que más memoria
+      no lo acorta). '0' lo apaga. Cubre una instancia a la vez; la solución de fondo es SnapStart (ZIP).
 
 Conditions:
   UseVpc: !Not [!Equals [!Join ['', !Ref SubnetIds], '']]
   HasCorsOrigins: !Not [!Equals [!Ref CorsAllowedOrigins, '']]
+  Calentar: !Not [!Equals [!Ref CalentarCadaMinutos, '0']]
 
 Globals:
   Function:
@@ -118,6 +127,23 @@ Resources:
             Path: /{proxy+}
             Method: ANY
             PayloadFormatVersion: '2.0'
+        # Warmer: con AutoPublishAlias, SAM apunta la regla al alias live (lo que usan los usuarios).
+        # El evento imita un GET /health de API Gateway (payload v2), que es lo único que Micronaut acepta;
+        # /health no toca la base de datos. Sin reintentos: si una llamada falla, llega la siguiente.
+        Calentar:
+          Type: Schedule
+          Properties:
+            Description: GET /health para mantener una instancia de b-sheet caliente
+            Schedule: !If [Calentar, !Sub 'rate(${CalentarCadaMinutos} minutes)', 'rate(15 minutes)']
+            State: !If [Calentar, ENABLED, DISABLED]
+            RetryPolicy:
+              MaximumRetryAttempts: 0
+            Input: !Sub >-
+              {"version":"2.0","routeKey":"$default","rawPath":"${ContextPath}/health","rawQueryString":"",
+              "headers":{"host":"calentar","user-agent":"eventbridge-calentar"},
+              "requestContext":{"http":{"method":"GET","path":"${ContextPath}/health","protocol":"HTTP/1.1",
+              "sourceIp":"127.0.0.1","userAgent":"eventbridge-calentar"},"requestId":"calentar",
+              "routeKey":"$default","stage":"$default","timeEpoch":0},"isBase64Encoded":false}
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
